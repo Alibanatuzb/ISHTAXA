@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS items (
   price INTEGER NOT NULL CHECK (price > 0),
   emoji TEXT NOT NULL DEFAULT '',
   active INTEGER NOT NULL DEFAULT 1,
-  sort INTEGER NOT NULL DEFAULT 0
+  sort INTEGER NOT NULL DEFAULT 0,
+  image_url TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS orders (
   delivery_fee INTEGER NOT NULL,
   total INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'new',
+  assigned_courier_id INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -83,6 +85,22 @@ CREATE TABLE IF NOT EXISTS admin (
   username TEXT NOT NULL,
   pass_hash TEXT NOT NULL,
   updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS couriers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  username TEXT NOT NULL UNIQUE,
+  pass_hash TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS courier_sessions (
+  token_hash TEXT PRIMARY KEY,
+  courier_id INTEGER NOT NULL REFERENCES couriers(id) ON DELETE CASCADE,
+  csrf TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  last_seen INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
@@ -147,6 +165,11 @@ function openDb(file) {
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 5000');
   db.exec(SCHEMA);
+  // Mavjud SQLite maʼlumotlar bazalarini xavfsiz kengaytirish.
+  const itemCols = db.prepare('PRAGMA table_info(items)').all().map((c) => c.name);
+  if (!itemCols.includes('image_url')) db.exec("ALTER TABLE items ADD COLUMN image_url TEXT NOT NULL DEFAULT ''");
+  const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
+  if (!orderCols.includes('assigned_courier_id')) db.exec('ALTER TABLE orders ADD COLUMN assigned_courier_id INTEGER');
   if (file !== ':memory:') {
     try { fs.chmodSync(file, 0o600); } catch { /* ba'zi fayl tizimlarida ishlamaydi */ }
   }
@@ -172,10 +195,10 @@ function openDb(file) {
     itemsAll: db.prepare('SELECT * FROM items ORDER BY sort, id'),
     itemById: db.prepare('SELECT * FROM items WHERE id = ?'),
     itemInsert: db.prepare(
-      'INSERT INTO items(category, name, description, price, emoji, active, sort) VALUES(?,?,?,?,?,?,?)'
+      'INSERT INTO items(category, name, description, price, emoji, active, sort, image_url) VALUES(?,?,?,?,?,?,?,?)'
     ),
     itemUpdate: db.prepare(
-      'UPDATE items SET category=?, name=?, description=?, price=?, emoji=?, active=?, sort=? WHERE id=?'
+      'UPDATE items SET category=?, name=?, description=?, price=?, emoji=?, active=?, sort=?, image_url=? WHERE id=?'
     ),
     itemDelete: db.prepare('DELETE FROM items WHERE id = ?'),
     orderByIdem: db.prepare('SELECT * FROM orders WHERE idem = ?'),
@@ -228,6 +251,7 @@ function openDb(file) {
       description: r.description,
       price: r.price,
       emoji: r.emoji,
+      imageUrl: r.image_url || '',
       active: r.active === 1,
       sort: r.sort,
     };
@@ -251,6 +275,7 @@ function openDb(file) {
     return {
       id: row.id,
       code: orderCode(row.id),
+      assignedCourierId: row.assigned_courier_id || null,
       name: row.name,
       phone: row.phone,
       address: row.address,
@@ -287,11 +312,11 @@ function openDb(file) {
       return (onlyActive ? q.itemsActive.all() : q.itemsAll.all()).map(serializeItem);
     },
     createItem(v) {
-      const r = q.itemInsert.run(v.category, v.name, v.description, v.price, v.emoji, v.active ? 1 : 0, v.sort);
+      const r = q.itemInsert.run(v.category, v.name, v.description, v.price, v.emoji, v.active ? 1 : 0, v.sort, v.imageUrl || '');
       return serializeItem(q.itemById.get(Number(r.lastInsertRowid)));
     },
     updateItem(id, v) {
-      const r = q.itemUpdate.run(v.category, v.name, v.description, v.price, v.emoji, v.active ? 1 : 0, v.sort, id);
+      const r = q.itemUpdate.run(v.category, v.name, v.description, v.price, v.emoji, v.active ? 1 : 0, v.sort, v.imageUrl || '', id);
       if (!r.changes) return null;
       return serializeItem(q.itemById.get(id));
     },
@@ -349,6 +374,39 @@ function openDb(file) {
     setOrderStatus(id, status) {
       if (!ORDER_STATUSES.includes(status)) return false;
       return q.orderStatus.run(status, Date.now(), id).changes > 0;
+    },
+    assignCourier(orderId, courierId) {
+      const c = courierId === null ? null : db.prepare('SELECT id FROM couriers WHERE id=? AND active=1').get(courierId);
+      if (courierId !== null && !c) return null;
+      const r = db.prepare('UPDATE orders SET assigned_courier_id=?, updated_at=? WHERE id=?').run(courierId, Date.now(), orderId);
+      return r.changes > 0;
+    },
+    listCouriers() {
+      return db.prepare("SELECT c.id,c.name,c.phone,c.username,c.active,c.created_at AS createdAt,COUNT(o.id) AS activeOrders FROM couriers c LEFT JOIN orders o ON o.assigned_courier_id=c.id AND o.status IN ('new','preparing','delivering') GROUP BY c.id ORDER BY c.id DESC").all().map(r=>({...r,active:r.active===1}));
+    },
+    createCourier(v) {
+      const r=db.prepare('INSERT INTO couriers(name,phone,username,pass_hash,active,created_at) VALUES(?,?,?,?,1,?)').run(v.name,v.phone,v.username,v.passHash,Date.now());
+      return {id:Number(r.lastInsertRowid),name:v.name,phone:v.phone,username:v.username,active:true,activeOrders:0};
+    },
+    updateCourier(id,v) {
+      const r=db.prepare('UPDATE couriers SET name=?,phone=?,active=? WHERE id=?').run(v.name,v.phone,v.active?1:0,id);
+      if(!r.changes)return null;
+      return db.prepare("SELECT c.id,c.name,c.phone,c.username,c.active,c.created_at AS createdAt,COUNT(o.id) AS activeOrders FROM couriers c LEFT JOIN orders o ON o.assigned_courier_id=c.id AND o.status IN ('new','preparing','delivering') WHERE c.id=? GROUP BY c.id").get(id);
+    },
+    deleteCourier(id) {
+      return tx(()=>{db.prepare('UPDATE orders SET assigned_courier_id=NULL WHERE assigned_courier_id=?').run(id);db.prepare('DELETE FROM courier_sessions WHERE courier_id=?').run(id);return db.prepare('DELETE FROM couriers WHERE id=?').run(id).changes>0;});
+    },
+    getCourierByUsername(username) { return plain(db.prepare('SELECT * FROM couriers WHERE username=?').get(username)); },
+    getCourier(id) { return plain(db.prepare('SELECT * FROM couriers WHERE id=?').get(id)); },
+    setCourierPassword(id,hash) { db.prepare('UPDATE couriers SET pass_hash=? WHERE id=?').run(hash,id);db.prepare('DELETE FROM courier_sessions WHERE courier_id=?').run(id); },
+    createCourierSession(hash,courierId,csrf) {const now=Date.now();db.prepare('INSERT INTO courier_sessions(token_hash,courier_id,csrf,created_at,last_seen) VALUES(?,?,?,?,?)').run(hash,courierId,csrf,now,now);},
+    getCourierSession(hash) {return plain(db.prepare('SELECT * FROM courier_sessions WHERE token_hash=?').get(hash));},
+    touchCourierSession(hash) {db.prepare('UPDATE courier_sessions SET last_seen=? WHERE token_hash=?').run(Date.now(),hash);},
+    deleteCourierSession(hash) {db.prepare('DELETE FROM courier_sessions WHERE token_hash=?').run(hash);},
+    deleteCourierSessions(id) {db.prepare('DELETE FROM courier_sessions WHERE courier_id=?').run(id);},
+    courierOrders(courierId) {
+      const rows=db.prepare("SELECT * FROM orders WHERE assigned_courier_id=? AND status IN ('new','preparing','delivering') ORDER BY id DESC LIMIT 100").all(courierId);
+      return rows.map(r=>{const lines=db.prepare('SELECT * FROM order_lines WHERE order_id=? ORDER BY id').all(r.id);return adminOrder(r,lines);});
     },
     stats(since) {
       const t = db
