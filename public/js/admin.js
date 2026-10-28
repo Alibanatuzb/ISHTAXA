@@ -195,6 +195,18 @@
         h('dt', null, 'Manzil'), h('dd', null, o.address),
         o.note ? h('dt', null, 'Izoh') : null, o.note ? h('dd', null, o.note) : null,
         h('dt', null, 'Toʻlov'), h('dd', null, o.payment === 'card' ? 'Karta (kuryerga)' : 'Naqd (kuryerga)')),
+      h('div', { class: 'courier-assign' },
+        h('label', { for: 'courier-order-' + o.id }, 'Masʼul kuryer'),
+        (() => {
+          const sel = h('select', { id: 'courier-order-' + o.id, 'aria-label': 'Kuryer tanlash' });
+          sel.append(h('option', { value: '' }, 'Kuryer belgilanmagan'));
+          for (const c of S.couriers) if (c.active) sel.append(h('option', { value: String(c.id), selected: Number(o.assignedCourierId) === c.id }, c.name + ' · ' + c.phone));
+          sel.addEventListener('change', async () => {
+            try { await api('/api/admin/orders/' + o.id + '/courier', { method: 'POST', body: { courierId: sel.value || null } }); await refresh(); }
+            catch (e) { alert(e.message); }
+          });
+          return sel;
+        })()),
       lines, act);
   }
 
