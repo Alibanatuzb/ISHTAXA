@@ -252,9 +252,12 @@ function createApp(config) {
     const ok=db.assignCourier(Number(ctx.params[0]),courierId);if(ok===null)throw new HttpError(422,'Faol kuryerni tanlang.');if(!ok)throw new HttpError(404,'Buyurtma topilmadi.');send(ctx.res,200,{ok:true});
   });
   route('POST', /^\/api\/courier\/login$/, { body: true }, async (ctx) => {
+    const chk=loginLimiter.check(ctx.ip);
+    if(!chk.ok)throw new HttpError(429,'Juda koʻp xato urinish. Keyinroq qayta urinib koʻring.',{retryAfter:chk.retryAfter});
     const username=typeof ctx.body.username==='string'?ctx.body.username.trim().toLowerCase().slice(0,30):'';const password=typeof ctx.body.password==='string'?ctx.body.password.slice(0,128):'';
     const courier=db.getCourierByUsername(username);const passOk=await sec.verifyPassword(password,courier?courier.pass_hash:'');
-    if(!courier||!courier.active||!passOk){await sleep(350);throw new HttpError(401,'Login yoki parol notoʻgʻri.');}
+    if(!courier||!courier.active||!passOk){loginLimiter.hit(ctx.ip);await sleep(500);throw new HttpError(401,'Login yoki parol notoʻgʻri.');}
+    loginLimiter.reset(ctx.ip);
     db.deleteCourierSessions(courier.id);const token=sec.randomToken(32),csrf=sec.randomToken(24);db.createCourierSession(sec.sha256(token),courier.id,csrf);
     const cookieName=ctx.secure?'__Host-ish_courier':'ish_courier';const parts=[cookieName+'='+token,'Path=/','HttpOnly','SameSite=Strict','Max-Age='+Math.floor(L.sessionMaxMs/1000)];if(ctx.secure)parts.push('Secure');ctx.res.setHeader('Set-Cookie',parts.join('; '));send(ctx.res,200,{ok:true,csrf});
   });
