@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: ishtaxa-shop
+    runtime: docker
+    plan: 0.1c-256mb
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeployTrigger: commit
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DB_FILE
+        value: /data/ishtaxa.db
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PATH
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+    disk:
+      name: ishtaxa-data
+      mountPath: /data
+      sizeGB: 1

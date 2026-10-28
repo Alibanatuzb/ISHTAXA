@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ishtaxa — fast food yetkazib berish</title>
+  <meta name="description" content="Ishtaxa: burger, lavash, kartoshka va ichimliklar. Onlayn buyurtma bering — 4 ta olsangiz, 1 tasi sovgʻa.">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <a class="skip" href="#menu">Menyuga oʻtish</a>
+
+  <header class="top">
+    <a class="brand" href="/" aria-label="Ishtaxa — bosh sahifa">
+      <span class="brand-mark" aria-hidden="true"></span>Ishtaxa
+    </a>
+    <button class="cart-btn" id="cart-open" type="button" aria-haspopup="dialog">
+      Savat
+      <span class="cart-count" id="cart-count" aria-live="polite">0</span>
+    </button>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-inner">
+        <h1>Ishtaha ochilsin.</h1>
+        <p class="hero-lead">Burger, lavash va qarsildoq kartoshka. Buyurtma bering — kuryer issiq holida olib boradi.</p>
+        <a class="btn btn-dark" href="#menu">Menyuni koʻrish</a>
+      </div>
+      <div class="punch" id="promo" hidden>
+        <p class="punch-title" id="promo-title"></p>
+        <ol class="punch-row" id="promo-dots" aria-hidden="true"></ol>
+        <p class="punch-note" id="promo-note"></p>
+      </div>
+    </section>
+
+    <div class="notice" id="closed" role="status" hidden>
+      Hozir buyurtma qabul qilinmayapti. Ish vaqti: <span id="closed-hours"></span>
+    </div>
+
+    <button class="track" id="track" type="button" hidden></button>
+
+    <section class="menu" id="menu" aria-labelledby="menu-h">
+      <h2 id="menu-h" class="sr">Menyu</h2>
+      <nav class="cats" id="cats" aria-label="Boʻlimlar"></nav>
+      <div id="menu-list" aria-live="polite">
+        <p class="muted pad">Menyu yuklanmoqda…</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p class="foot-brand">Ishtaxa</p>
+    <p id="foot-info" class="muted"></p>
+  </footer>
+
+  <dialog class="drawer" id="drawer" aria-labelledby="drawer-h">
+    <div class="drawer-head">
+      <h2 id="drawer-h">Savat</h2>
+      <button class="icon-btn" id="drawer-close" type="button" aria-label="Savatni yopish">✕</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </dialog>
+
+  <script src="/js/app.js" defer></script>
+</body>
+</html>
