@@ -43,17 +43,45 @@
     return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
   }
 
-  async function api(path, options) {
-    let res;
-    try {
-      res = await fetch(path, options);
-    } catch {
-      throw { message: 'Internet bilan aloqa yoʻq. Ulanishni tekshirib, qayta urinib koʻring.' };
+  async function api(path, options = {}) {
+    // Bepul host uygʻonayotganida vaqtinchalik javob kelishi mumkin.
+    // GET soʻrovlarini keshdan olmasdan, qisqa qayta urinish bilan bajariladi.
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let res;
+      try {
+        res = await fetch(path, { ...options, cache: 'no-store' });
+      } catch {
+        if (attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          continue;
+        }
+        throw { message: 'Serverga ulanib boʻlmadi. Sahifani yangilang va qayta urinib koʻring.' };
+      }
+
+      lastStatus = res.status;
+      const contentType = res.headers.get('content-type') || '';
+      let data = {};
+      if (contentType.includes('json')) {
+        try { data = await res.json(); } catch { /* notoʻgʻri JSON */ }
+      } else {
+        try { await res.text(); } catch { /* javob tanasi ixtiyoriy */ }
+      }
+
+      if (res.ok && contentType.includes('json')) return data;
+      if (attempt === 0 && (res.status >= 500 || res.status === 429 || !contentType.includes('json'))) {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        continue;
+      }
+      throw {
+        status: res.status,
+        message: data.error || (contentType.includes('json')
+          ? `Server xatosi (${res.status}). Keyinroq qayta urinib koʻring.`
+          : `Serverdan notoʻgʻri javob keldi (${res.status}). Sahifani yangilang.`),
+        errors: data.errors
+      };
     }
-    let data = {};
-    try { data = await res.json(); } catch { /* boʻsh javob */ }
-    if (!res.ok) throw { status: res.status, message: data.error || 'Xatolik yuz berdi.', errors: data.errors };
-    return data;
+    throw { status: lastStatus, message: 'Serverga ulanib boʻlmadi. Sahifani yangilang.' };
   }
 
   /* ---------- Holat ---------- */
