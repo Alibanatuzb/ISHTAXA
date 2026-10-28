@@ -172,7 +172,7 @@
     const row = h(
       'article',
       { class: 'row' },
-      h('div', { class: 'row-emoji', 'aria-hidden': 'true' }, it.emoji || '🍽️'),
+      h('div', { class: 'row-emoji', 'aria-hidden': 'true' }, it.imageUrl ? h('img', { src: it.imageUrl, alt: it.name, loading: 'lazy' }) : (it.emoji || '🍽️')),
       h('div', null, h('h4', { class: 'row-name' }, it.name, tag), it.description ? h('p', { class: 'row-desc' }, it.description) : null),
       side
     );
