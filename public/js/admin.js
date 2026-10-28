@@ -33,7 +33,7 @@
     delivering: { to: 'done', label: 'Yetkazildi' },
   };
 
-  const S = { csrf: null, tab: 'orders', scope: 'active', timer: null, items: [], timerBusy: false };
+  const S = { csrf: null, tab: 'orders', scope: 'active', timer: null, items: [], couriers: [], timerBusy: false };
 
   class ApiError extends Error {
     constructor(status, message, errors) { super(message); this.status = status; this.errors = errors; }
@@ -101,7 +101,7 @@
 
   /* ---------- Asosiy ramka ---------- */
 
-  const TABS = [['orders', 'Buyurtmalar'], ['menu', 'Menyu'], ['settings', 'Aksiya va sozlamalar'], ['password', 'Parol']];
+  const TABS = [['orders', 'Buyurtmalar'], ['menu', 'Menyu'], ['couriers', 'Kuryerlar'], ['settings', 'Aksiya va sozlamalar'], ['password', 'Parol']];
 
   function showApp() {
     const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Boʻlimlar' });
@@ -119,7 +119,7 @@
       h('div', { class: 'admin-wrap' }, tabs, content)
     );
     stopTimer();
-    ({ orders: viewOrders, menu: viewMenu, settings: viewSettings, password: viewPassword })[S.tab](content);
+    ({ orders: viewOrders, menu: viewMenu, couriers: viewCouriers, settings: viewSettings, password: viewPassword })[S.tab](content);
   }
 
   async function logout() {
@@ -144,7 +144,7 @@
       if (S.timerBusy) return;
       S.timerBusy = true;
       try {
-        const [o, st] = await Promise.all([api(`/api/admin/orders?scope=${S.scope}`), api('/api/admin/stats')]);
+        const [o, st, cr] = await Promise.all([api(`/api/admin/orders?scope=${S.scope}`), api('/api/admin/stats'), api('/api/admin/couriers')]); S.couriers = cr.couriers;
         stats.replaceChildren(
           h('div', { class: 'stat' }, h('b', null, String(st.today.orders)), h('span', null, 'Bugungi buyurtmalar')),
           h('div', { class: 'stat' }, h('b', null, money(st.today.revenue)), h('span', null, 'Bugungi tushum')),
@@ -198,6 +198,20 @@
       lines, act);
   }
 
+  async function viewCouriers(root) {
+    const list=h('div'); const add=h('button',{class:'btn btn-sun btn-auto',type:'button',onclick:()=>courierDialog(null,load)},'＋ Yangi kuryer qoʻshish');
+    root.replaceChildren(h('div',{class:'section-title'},'Kuryerlar nazorati'),h('p',{class:'muted'},'Har bir kuryerga alohida login va parol yarating. Buyurtmani unga buyurtmalar boʻlimidan biriktiring.'),h('div',{class:'actions'},add),list);
+    async function load(){try{const r=await api('/api/admin/couriers');list.replaceChildren(...(r.couriers.length?r.couriers.map(c=>h('article',{class:'card'},h('div',{class:'card-head'},h('h3',null,c.name),h('span',{class:'status '+(c.active?'is-done':'is-cancelled')},c.active?'Faol':'Oʻchirilgan')),h('p',null,c.phone+' · login: '+c.username),h('p',{class:'muted'},'Faol buyurtmalar: '+c.activeOrders),h('div',{class:'actions'},h('button',{class:'btn-line',type:'button',onclick:()=>courierDialog(c,load)},'Tahrirlash'),h('button',{class:'btn-line btn-danger',type:'button',onclick:async()=>{if(!confirm(c.name+' kuryerini oʻchirasizmi?'))return;try{await api('/api/admin/couriers/'+c.id,{method:'DELETE'});await load();}catch(e){alert(e.message);}}},'Oʻchirish')))): [h('p',{class:'empty'},'Hali kuryer qoʻshilmagan.')]))}catch(e){list.replaceChildren(h('p',{class:'alert'},e.message));}}
+    await load();
+  }
+  function courierDialog(c,done){
+    const dlg=h('dialog',{class:'modal','aria-labelledby':'courier-title'});
+    const f={name:h('input',{id:'c-name',required:true,maxlength:60,value:c?c.name:''}),phone:h('input',{id:'c-phone',required:true,maxlength:30,value:c?c.phone:'+998'}),username:h('input',{id:'c-user',required:true,maxlength:30,value:c?c.username:'',disabled:!!c}),password:h('input',{id:'c-pass',type:'password',required:!c,autocomplete:'new-password',maxlength:128})};
+    const msg=h('div',{class:'alert',hidden:true}); const field=(id,label,input)=>h('div',{class:'field'},h('label',{for:id},label),input);
+    const form=h('form',{class:'form'},h('h2',{id:'courier-title'},c?'Kuryerni tahrirlash':'Yangi kuryer'),field('c-name','Ism',f.name),field('c-phone','Telefon',f.phone),field('c-user','Login',f.username),c?null:field('c-pass','Parol (harf va raqam, 10+ belgi)',f.password),msg,h('div',{class:'actions'},h('button',{class:'btn btn-sun btn-auto',type:'submit'},'Saqlash'),h('button',{class:'btn-line',type:'button',onclick:()=>dlg.close()},'Bekor qilish')));
+    form.addEventListener('submit',async e=>{e.preventDefault();msg.hidden=true;try{if(c){await api('/api/admin/couriers/'+c.id,{method:'PUT',body:{name:f.name.value,phone:f.phone.value,active:c.active}});}else{await api('/api/admin/couriers',{method:'POST',body:{name:f.name.value,phone:f.phone.value,username:f.username.value,password:f.password.value}});}dlg.close();await done();}catch(ex){msg.textContent=ex.message;msg.hidden=false;}});
+    dlg.append(form);dlg.addEventListener('close',()=>dlg.remove());document.body.append(dlg);dlg.showModal();
+  }
   /* ---------- Menyu ---------- */
 
   async function viewMenu(root) {
