@@ -156,6 +156,13 @@ function itemInput(body) {
   const active = bool(body.active ?? true, 'Holat');
   if (active.error) errors.active = active.error; else out.active = active.value;
 
+  const imageUrl = text(body.imageUrl ?? '', { max: 350000, label: 'Rasm' });
+  if (imageUrl.error) errors.imageUrl = imageUrl.error;
+  else {
+    if (imageUrl.value && !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(imageUrl.value)) errors.imageUrl = 'Rasm JPG, PNG yoki WebP boʻlishi kerak.';
+    else out.imageUrl = imageUrl.value;
+  }
+
   if (Object.keys(errors).length) return { errors };
   return { value: out };
 }
