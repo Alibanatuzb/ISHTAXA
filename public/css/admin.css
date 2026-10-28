@@ -68,3 +68,18 @@ dialog.modal h2 { font-weight: 900; font-stretch: 62%; font-size: 2rem; line-hei
   .menu-row { grid-template-columns: 36px minmax(0, 1fr); }
   .menu-row .acts { grid-column: 1 / -1; justify-content: flex-start; }
 }
+
+.admin{background:#f7f6ef;color:#1b2a22}.admin .top{background:#173b2b;color:#fff;border-bottom:0;box-shadow:0 8px 28px #173b2b1f;padding:17px clamp(16px,4vw,36px)}.admin .top .brand{color:#fff}
+.admin .admin-wrap{max-width:1120px;padding:10px var(--gutter) 72px}.admin .login{min-height:100vh;padding:24px;background:radial-gradient(circle at 10% 10%,#edf5d5 0,transparent 33%),#f7f6ef}
+.admin .login-box{width:min(430px,100%);padding:clamp(24px,4vw,38px);border:1px solid #e1e7d9;border-radius:24px;background:#fffffff5;box-shadow:0 22px 70px #1b36251a}
+.admin .login-box h1{font-size:3rem;color:#173b2b;letter-spacing:-.06em}.admin .login-box .muted{color:#647368;line-height:1.65}
+.admin .field input,.admin .field textarea,.admin select{background:#fff;color:#1b2a22;border:1px solid #dbe3d6;border-radius:12px;box-shadow:none;padding:12px}
+.admin .field input:focus-visible,.admin .field textarea:focus-visible,.admin select:focus-visible{border-color:#5c8d46;box-shadow:0 0 0 3px #5c8d4626}
+.admin .tabs{gap:10px;padding:18px 0;flex-wrap:wrap}.admin .tabs button,.admin .chips button{background:#fff;color:#2b4835;border-color:#e0e6da;border-radius:999px;box-shadow:0 3px 12px #1e2d2209}
+.admin .tabs button[aria-selected=true],.admin .chips button[aria-pressed=true]{background:#173b2b;color:#e2f77e;border-color:#173b2b}
+.admin .stat,.admin .card{background:#fff;border-color:#e3e8de;border-radius:18px;box-shadow:0 8px 24px #2333250a}.admin .stat b{color:#234b34}.admin .stat span,.admin .muted,.admin .card dt{color:#6a776b}.admin .card-head h3{color:#183b2b;letter-spacing:-.04em}
+.admin .items{border-color:#e2e7dd}.admin .btn-line{color:#23412e;background:#fff;border-color:#d7e0d1}.admin .btn-line:hover{background:#f0f6e3;border-color:#9dbb75;color:#173b2b}
+.admin .btn-danger{color:#b2352b;border-color:#f0c9c4}.admin .menu-row{border-color:#e5e8de}.admin .menu-row .meta{color:#68756c}.admin .menu-row .emoji{background:#f1f5e9;border-radius:12px;padding:5px 0}
+.admin dialog.modal{background:#fff;color:#1b2a22;border-color:#e0e6da;border-radius:22px;box-shadow:0 20px 70px #0003}.admin dialog.modal h2{color:#173b2b;letter-spacing:-.04em}
+.admin .ok-msg{background:#e8f7df;color:#245a32;border:1px solid #d4ebc7}.admin .courier-assign{display:grid;gap:8px;margin:16px 0;padding:14px;border-radius:14px;background:#f4f7ed;border:1px solid #e1e8d8}.admin .courier-assign label{font-size:.88rem;font-weight:700;color:#234b34}.admin .courier-assign select{width:100%;min-width:0}
+@media(max-width:520px){.admin .stats{grid-template-columns:1fr}.admin .stat{display:flex;gap:10px;align-items:baseline}.admin .stat b{font-size:1.45rem}.admin .admin-wrap{padding-inline:14px}.admin .card{padding:15px}}
