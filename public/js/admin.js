@@ -248,6 +248,17 @@
     await load();
   }
 
+  function resizeMenuImage(file) {
+    return new Promise((resolve,reject)=>{
+      if(!/^image\/(jpeg|png|webp)$/.test(file.type)){reject(new Error('Faqat JPG, PNG yoki WebP tanlang.'));return;}
+      const reader=new FileReader();reader.onerror=()=>reject(new Error('Rasmni oʻqib boʻlmadi.'));
+      reader.onload=()=>{const img=new Image();img.onerror=()=>reject(new Error('Rasm fayli yaroqsiz.'));img.onload=()=>{
+        const scale=Math.min(1,900/Math.max(img.width,img.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        const encode=q=>{const data=canvas.toDataURL('image/jpeg',q);if(data.length<340000){resolve(data);return;}if(q>.46){encode(q-.12);return;}reject(new Error('Rasm katta. Kichikroq rasm tanlang.'));};encode(.82);
+      };img.src=reader.result;};reader.readAsDataURL(file);
+    });
+  }
   function itemDialog(item, done) {
     const cats = [...new Set(S.items.map((i) => i.category))];
     const f = {
@@ -256,6 +267,8 @@
       description: h('input', { id: 'i-desc', maxlength: 140, value: item ? item.description : '' }),
       price: h('input', { id: 'i-price', type: 'number', min: 1000, max: 2000000, step: 500, inputmode: 'numeric', required: true, value: item ? item.price : '' }),
       emoji: h('input', { id: 'i-emoji', maxlength: 8, value: item ? item.emoji : '' }),
+      image: h('input', { id: 'i-image', type: 'file', accept: 'image/jpeg,image/png,image/webp' }),
+      imageUrl: item ? (item.imageUrl || '') : '',
       sort: h('input', { id: 'i-sort', type: 'number', min: 0, max: 9999, value: item ? item.sort : (S.items.length + 1) * 10 }),
       active: h('input', { id: 'i-active', type: 'checkbox', checked: item ? item.active : true }),
     };
@@ -269,6 +282,8 @@
       h('datalist', { id: 'i-cats' }, cats.map((c) => h('option', { value: c }))),
       field('i-desc', 'Qisqa tavsif', f.description),
       h('div', { class: 'grid2' }, field('i-emoji', 'Belgi (emoji)', f.emoji), field('i-sort', 'Tartib raqami', f.sort)),
+      field('i-image', 'Taom rasmi (JPG/PNG/WebP)', f.image),
+      h('p', { class: 'muted' }, 'Rasm 256 KB gacha. Tanlangan rasm avtomatik kichraytiriladi.'),
       h('label', { class: 'check' }, f.active, 'Menyuda koʻrsatilsin'),
       err,
       h('div', { class: 'actions' },
@@ -280,8 +295,10 @@
       const body = {
         name: f.name.value, category: f.category.value, description: f.description.value,
         price: Number(f.price.value), emoji: f.emoji.value, sort: Number(f.sort.value || 0), active: f.active.checked,
+        imageUrl: f.imageUrl,
       };
       try {
+        if (f.image.files && f.image.files[0]) body.imageUrl = await resizeMenuImage(f.image.files[0]);
         await api(item ? `/api/admin/items/${item.id}` : '/api/admin/items', { method: item ? 'PUT' : 'POST', body });
         dlg.close();
         await done();
