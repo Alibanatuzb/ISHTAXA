@@ -124,6 +124,20 @@ function createApp(config) {
     return { hash, csrf: s.csrf };
   }
 
+  function requireCourier(ctx) {
+    const cookies = sec.parseCookies(ctx.req.headers.cookie);
+    const token = cookies['__Host-ish_courier'] || cookies.ish_courier;
+    if (!token || !/^[0-9a-f]{64}$/.test(token)) throw new HttpError(401, 'Kuryer sifatida tizimga kiring.');
+    const hash = sec.sha256(token); const session = db.getCourierSession(hash);
+    if (!session) throw new HttpError(401, 'Kuryer sessiyasi tugagan.');
+    const now = Date.now();
+    if (now-session.created_at>L.sessionMaxMs || now-session.last_seen>L.sessionIdleMs) { db.deleteCourierSession(hash); throw new HttpError(401,'Kuryer sessiyasi tugagan.'); }
+    const courier=db.getCourier(session.courier_id);
+    if(!courier || !courier.active) { db.deleteCourierSession(hash); throw new HttpError(403,'Kuryer hisobi faol emas.'); }
+    db.touchCourierSession(hash);
+    if(ctx.mutating){const sent=String(ctx.req.headers['x-csrf-token']||'');if(!sent||!sec.safeEqual(sent,session.csrf))throw new HttpError(403,'Xavfsizlik kaliti mos kelmadi.');}
+    ctx.courierSession={hash,csrf:session.csrf,courier};
+  }
   function requireAdmin(ctx) {
     const s = currentSession(ctx.req, ctx.secure);
     if (!s) throw new HttpError(401, 'Tizimga kiring.', { code: 'auth' });
@@ -213,6 +227,44 @@ function createApp(config) {
     send(ctx.res, 200, { ok: true, csrf: ctx.session.csrf });
   });
 
+  route('GET', /^\/api\/admin\/couriers$/, { admin: true }, (ctx) => send(ctx.res,200,{couriers:db.listCouriers()}));
+  route('POST', /^\/api\/admin\/couriers$/, { admin: true, body: true }, async (ctx) => {
+    const name=typeof ctx.body.name==='string'?ctx.body.name.trim().slice(0,60):'';
+    const phone=typeof ctx.body.phone==='string'?ctx.body.phone.trim().slice(0,30):'';
+    const username=typeof ctx.body.username==='string'?ctx.body.username.trim().toLowerCase():'';
+    const password=typeof ctx.body.password==='string'?ctx.body.password:'';
+    if(name.length<2||phone.replace(/\D/g,'').length<9)throw new HttpError(422,'Kuryer ismi va telefonini toʻgʻri kiriting.');
+    if(!/^[a-z0-9_-]{3,30}$/.test(username))throw new HttpError(422,'Login 3–30 belgidan iborat boʻlsin (lotin harfi, raqam, - yoki _).');
+    const problem=sec.passwordProblem(password);if(problem)throw new HttpError(422,problem);
+    if(db.getCourierByUsername(username))throw new HttpError(409,'Bu kuryer loginidan foydalanilgan.');
+    const courier=db.createCourier({name,phone,username,passHash:await sec.hashPassword(password)});send(ctx.res,201,{courier});
+  });
+  route('PUT', /^\/api\/admin\/couriers\/(\d{1,9})$/, { admin: true, body: true }, (ctx) => {
+    const name=typeof ctx.body.name==='string'?ctx.body.name.trim().slice(0,60):'';const phone=typeof ctx.body.phone==='string'?ctx.body.phone.trim().slice(0,30):'';
+    if(name.length<2||phone.replace(/\D/g,'').length<9)throw new HttpError(422,'Ism va telefonni toʻgʻri kiriting.');
+    const courier=db.updateCourier(Number(ctx.params[0]),{name,phone,active:ctx.body.active===true});if(!courier)throw new HttpError(404,'Kuryer topilmadi.');
+    if(!courier.active)db.deleteCourierSessions(courier.id);send(ctx.res,200,{courier});
+  });
+  route('DELETE', /^\/api\/admin\/couriers\/(\d{1,9})$/, { admin: true }, (ctx) => {if(!db.deleteCourier(Number(ctx.params[0])))throw new HttpError(404,'Kuryer topilmadi.');send(ctx.res,200,{ok:true});});
+  route('POST', /^\/api\/admin\/orders\/(\d{1,9})\/courier$/, { admin: true, body: true }, (ctx) => {
+    const raw=ctx.body.courierId;const courierId=raw===null||raw===''?null:Number(raw);
+    if(courierId!==null&&(!Number.isSafeInteger(courierId)||courierId<1))throw new HttpError(422,'Kuryer tanlovi notoʻgʻri.');
+    const ok=db.assignCourier(Number(ctx.params[0]),courierId);if(ok===null)throw new HttpError(422,'Faol kuryerni tanlang.');if(!ok)throw new HttpError(404,'Buyurtma topilmadi.');send(ctx.res,200,{ok:true});
+  });
+  route('POST', /^\/api\/courier\/login$/, { body: true }, async (ctx) => {
+    const username=typeof ctx.body.username==='string'?ctx.body.username.trim().toLowerCase().slice(0,30):'';const password=typeof ctx.body.password==='string'?ctx.body.password.slice(0,128):'';
+    const courier=db.getCourierByUsername(username);const passOk=await sec.verifyPassword(password,courier?courier.pass_hash:'');
+    if(!courier||!courier.active||!passOk){await sleep(350);throw new HttpError(401,'Login yoki parol notoʻgʻri.');}
+    db.deleteCourierSessions(courier.id);const token=sec.randomToken(32),csrf=sec.randomToken(24);db.createCourierSession(sec.sha256(token),courier.id,csrf);
+    const cookieName=ctx.secure?'__Host-ish_courier':'ish_courier';const parts=[cookieName+'='+token,'Path=/','HttpOnly','SameSite=Strict','Max-Age='+Math.floor(L.sessionMaxMs/1000)];if(ctx.secure)parts.push('Secure');ctx.res.setHeader('Set-Cookie',parts.join('; '));send(ctx.res,200,{ok:true,csrf});
+  });
+  route('GET', /^\/api\/courier\/session$/, { courier: true }, (ctx) => send(ctx.res,200,{ok:true,csrf:ctx.courierSession.csrf,courier:{name:ctx.courierSession.courier.name}}));
+  route('GET', /^\/api\/courier\/orders$/, { courier: true }, (ctx) => send(ctx.res,200,{orders:db.courierOrders(ctx.courierSession.courier.id)}));
+  route('POST', /^\/api\/courier\/orders\/(\d{1,9})\/status$/, { courier: true, body: true }, (ctx) => {
+    const id=Number(ctx.params[0]),status=ctx.body.status;const owns=db.courierOrders(ctx.courierSession.courier.id).some(o=>o.id===id);if(!owns)throw new HttpError(403,'Bu buyurtma sizga biriktirilmagan.');
+    if(!['preparing','delivering','done'].includes(status))throw new HttpError(422,'Holat notoʻgʻri.');if(!db.setOrderStatus(id,status))throw new HttpError(404,'Buyurtma topilmadi.');send(ctx.res,200,{ok:true});
+  });
+  route('POST', /^\/api\/courier\/logout$/, { courier: true }, (ctx) => {const name=ctx.secure?'__Host-ish_courier':'ish_courier';db.deleteCourierSession(ctx.courierSession.hash);ctx.res.setHeader('Set-Cookie',name+'=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'+(ctx.secure?'; Secure':''));send(ctx.res,200,{ok:true});});
   route('GET', /^\/api\/admin\/orders$/, { admin: true }, (ctx) => {
     const scope = SCOPES.includes(ctx.url.searchParams.get('scope')) ? ctx.url.searchParams.get('scope') : 'active';
     send(ctx.res, 200, { orders: db.listOrders({ scope, limit: 150 }) });
@@ -347,6 +399,11 @@ function createApp(config) {
     const method = req.method;
     const ip = sec.clientIp(req, config);
 
+    if (pathname === '/courier' || pathname === '/courier.html') {
+      if (method !== 'GET' && method !== 'HEAD') return send(res,405,{error:'Usul ruxsat etilmagan.'});
+      return serveFile(req,res,path.join(config.publicDir,'courier.html'),{noStore:true,extra:{'X-Robots-Tag':'noindex, nofollow'}});
+    }
+
     // Yashirin admin sahifasi
     if (pathname === config.adminPath || pathname.startsWith(config.adminPath + '/')) {
       if (method !== 'GET' && method !== 'HEAD') return send(res, 405, { error: 'Usul ruxsat etilmagan.' }, { Allow: 'GET, HEAD' });
@@ -374,7 +431,8 @@ function createApp(config) {
 
         const ctx = { req, res, url, ip, secure, mutating, params: m.slice(1), body: null, session: null };
         if (r.opts.admin) requireAdmin(ctx);
-        if (r.opts.body) ctx.body = await readJson(req);
+        if (r.opts.courier) requireCourier(ctx);
+        if (r.opts.body) ctx.body = await readJson(req, pathname.startsWith('/api/admin/items') ? 400 * 1024 : 32 * 1024);
         return r.handler(ctx);
       }
       if (matchedPath) {
