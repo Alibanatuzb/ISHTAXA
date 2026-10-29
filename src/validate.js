@@ -58,7 +58,7 @@ function phone(value) {
   return { value: `+998${digits}` };
 }
 
-const ORDER_STATUSES = ['new', 'preparing', 'delivering', 'done', 'cancelled'];
+const ORDER_STATUSES = ['new', 'preparing', 'ready', 'delivering', 'done', 'cancelled'];
 const PAYMENTS = ['cash', 'card'];
 
 function idemKey(value) {
@@ -73,16 +73,25 @@ function orderInput(body) {
 
   const fields = {};
   const errors = {};
+  const orderType = body.orderType === undefined ? 'delivery' : body.orderType;
+  if (!['delivery', 'dinein'].includes(orderType)) errors.orderType = 'Buyurtma turini tanlang.';
+  else fields.orderType = orderType;
+  const table = text(body.tableNumber ?? '', { min: orderType === 'dinein' ? 1 : 0, max: 20, label: 'Stol raqami' });
+  if (table.error) errors.tableNumber = table.error;
+  else fields.tableNumber = orderType === 'dinein' ? table.value : '';
 
   const name = text(body.name, { min: 2, max: 60, label: 'Ism' });
   if (name.error) errors.name = name.error;
   else fields.name = name.value;
 
-  const ph = phone(body.phone);
-  if (ph.error) errors.phone = ph.error;
-  else fields.phone = ph.value;
+  if (orderType === 'dinein' && !body.phone) fields.phone = '';
+  else {
+    const ph = phone(body.phone);
+    if (ph.error) errors.phone = ph.error;
+    else fields.phone = ph.value;
+  }
 
-  const address = text(body.address, { min: 5, max: 200, multiline: true, label: 'Manzil' });
+  const address = text(body.address, { min: orderType === 'dinein' ? 0 : 5, max: 200, multiline: true, label: 'Manzil' });
   if (address.error) errors.address = address.error;
   else fields.address = address.value;
 

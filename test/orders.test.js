@@ -158,3 +158,19 @@ test('buyurtma tezligi cheklanadi (bitta IP dan)', async () => {
     assert.deepEqual(codes, [201, 201, 201, 429, 429]);
   } finally { await lim.close(); }
 });
+
+test('zal buyurtmasi stol bilan saqlanadi va yetkazish haqi olinmaydi', async () => {
+  const {items}=await menu();
+  const r=await place(orderBody([{id:items[0].id,qty:1}],{orderType:'dinein',tableNumber:'12',phone:'',address:''}));
+  assert.equal(r.status,201,JSON.stringify(r.data));
+  assert.equal(r.data.order.orderType,'dinein');
+  assert.equal(r.data.order.tableNumber,'12');
+  assert.equal(r.data.order.deliveryFee,0);
+});
+
+test('zal buyurtmasida stol raqami majburiy', async () => {
+  const {items}=await menu();
+  const r=await place(orderBody([{id:items[0].id,qty:1}],{orderType:'dinein',phone:'',address:''}));
+  assert.equal(r.status,422);
+  assert.ok(r.data.errors.tableNumber);
+});

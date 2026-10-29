@@ -26,6 +26,7 @@
   const STATUS = {
     new: 'Qabul qilindi',
     preparing: 'Tayyorlanmoqda',
+    ready: 'Tayyor — kuryer kutilyapti',
     delivering: 'Yoʻlda',
     done: 'Yetkazildi',
     cancelled: 'Bekor qilindi',
@@ -86,7 +87,7 @@
 
   /* ---------- Holat ---------- */
 
-  const state = { items: [], settings: null, cart: new Map(), view: 'cart', last: null, pollTimer: null };
+  const state = { items: [], settings: null, cart: new Map(), view: 'cart', last: null, pollTimer: null, orderType: 'delivery' };
 
   function loadCart() {
     try {
@@ -117,7 +118,7 @@
       count += qty + freeFor(qty);
     }
     const s = state.settings;
-    const fee = subtotal > 0 && !(s.free_from > 0 && subtotal >= s.free_from) ? s.delivery_fee : 0;
+    const fee = state.orderType === 'dinein' ? 0 : (subtotal > 0 && !(s.free_from > 0 && subtotal >= s.free_from) ? s.delivery_fee : 0);
     return { subtotal, fee, total: subtotal + fee, count };
   }
 
@@ -258,11 +259,18 @@
       h('div', null, h('span', null, 'Taomlar'), h('span', null, money(t.subtotal))),
       h('div', null, h('span', null, 'Yetkazish'), h('span', null, t.fee === 0 ? 'Bepul' : money(t.fee)))
     );
-    if (s.free_from > 0 && t.subtotal < s.free_from) {
+    if (state.orderType === 'delivery' && s.free_from > 0 && t.subtotal < s.free_from) {
       sum.append(h('div', { class: 'nudge' }, h('span', null, `Yana ${money(s.free_from - t.subtotal)} — yetkazish bepul.`)));
     }
     sum.append(h('div', { class: 'total' }, h('span', null, 'Jami'), h('span', null, money(t.total))));
     body.append(sum);
+
+    const orderType = h('select', { id: 'order-type' },
+      h('option', { value: 'delivery' }, 'Yetkazib berish'),
+      h('option', { value: 'dinein' }, 'Zalda — stolga buyurtma'));
+    orderType.value = state.orderType;
+    orderType.addEventListener('change', () => { state.orderType = orderType.value; renderDrawer(); });
+    body.append(h('div', { class: 'field' }, h('label', { for: 'order-type' }, 'Buyurtma turi'), orderType));
 
     if (!s.shop_open) {
       body.append(h('p', { class: 'alert' }, 'Hozir buyurtma qabul qilinmayapti.'));
@@ -280,23 +288,24 @@
 
     const name = h('input', { id: 'f-name', name: 'name', type: 'text', autocomplete: 'name', maxlength: 60, required: true, value: saved.name || '' });
     const phone = h('input', { id: 'f-phone', name: 'phone', type: 'tel', inputmode: 'tel', autocomplete: 'tel-national', placeholder: '90 123 45 67', maxlength: 20, required: true, value: saved.phone || '' });
-    const address = h('textarea', { id: 'f-address', name: 'address', autocomplete: 'street-address', maxlength: 200, required: true, placeholder: 'Koʻcha, uy, kvartira, moʻljal' }, saved.address || '');
+    const address = h('textarea', { id: 'f-address', name: 'address', autocomplete: 'street-address', maxlength: 200, required: state.orderType === 'delivery', placeholder: 'Koʻcha, uy, kvartira, moʻljal' }, saved.address || '');
+    const table = h('input', { id: 'f-table', name: 'tableNumber', type: 'text', maxlength: 20, required: state.orderType === 'dinein', placeholder: 'Masalan, 4' });
     const note = h('textarea', { id: 'f-note', name: 'note', maxlength: 200, placeholder: 'Masalan: achchiq sousni kamroq qoʻshing' });
 
     const pay = h('fieldset', { class: 'pay' },
       h('legend', { class: 'legend' }, 'Toʻlov usuli'),
-      h('label', null, h('input', { type: 'radio', name: 'payment', value: 'cash', checked: true }), 'Naqd pul — kuryerga'),
-      h('label', null, h('input', { type: 'radio', name: 'payment', value: 'card' }), 'Karta — kuryerga')
+      h('label', null, h('input', { type: 'radio', name: 'payment', value: 'cash', checked: true }), state.orderType === 'dinein' ? 'Naqd pul' : 'Naqd pul — kuryerga'),
+      h('label', null, h('input', { type: 'radio', name: 'payment', value: 'card' }), state.orderType === 'dinein' ? 'Karta' : 'Karta — kuryerga')
     );
 
     const alert = h('div', { class: 'alert', id: 'form-alert', role: 'alert', hidden: true });
     const submit = h('button', { class: 'btn btn-sun', type: 'submit' }, `Buyurtma berish · ${money(t.total)}`);
 
     const form = h('form', { class: 'form', novalidate: true },
-      h('h3', null, 'Yetkazish maʼlumotlari'),
+      h('h3', null, state.orderType === 'dinein' ? 'Zalda buyurtma' : 'Yetkazish maʼlumotlari'),
       field('f-name', 'Ismingiz', name),
-      field('f-phone', 'Telefon raqami', h('div', { class: 'phone' }, h('span', null, '+998'), phone)),
-      field('f-address', 'Manzil', address),
+      state.orderType === 'delivery' ? field('f-phone', 'Telefon raqami', h('div', { class: 'phone' }, h('span', null, '+998'), phone)) : null,
+      state.orderType === 'delivery' ? field('f-address', 'Manzil', address) : field('f-table', 'Stol raqami', table),
       field('f-note', 'Izoh (ixtiyoriy)', note),
       pay,
       alert,
@@ -314,7 +323,8 @@
       submit.textContent = 'Yuborilmoqda…';
       try {
         const payload = {
-          name: name.value, phone: phone.value, address: address.value, note: note.value,
+          name: name.value, phone: state.orderType === 'delivery' ? phone.value : '', address: state.orderType === 'delivery' ? address.value : '',
+          orderType: state.orderType, tableNumber: state.orderType === 'dinein' ? table.value : '', note: note.value,
           payment: form.elements.payment.value,
           key: checkoutKey,
           items: [...state.cart].map(([id, qty]) => ({ id, qty })),
@@ -333,7 +343,7 @@
         submit.disabled = false;
         submit.textContent = original;
         if (err.errors) {
-          const map = { name: 'f-name', phone: 'f-phone', address: 'f-address', note: 'f-note' };
+          const map = { name: 'f-name', phone: 'f-phone', address: 'f-address', tableNumber: 'f-table', note: 'f-note' };
           let focused = false;
           for (const [k, msg] of Object.entries(err.errors)) {
             const id = map[k];
@@ -356,7 +366,7 @@
   /* ---------- Buyurtma holati ---------- */
 
   function showOrder(order, fresh) {
-    state.view = 'order';
+            state.view = 'order';
     const body = $('#drawer-body');
     body.replaceChildren();
     $('#drawer-h').textContent = 'Buyurtma';

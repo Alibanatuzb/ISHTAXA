@@ -14,7 +14,6 @@ const ADMIN_ENDPOINTS = [
   ['GET', '/api/admin/stats'],
   ['GET', '/api/admin/items'],
   ['GET', '/api/admin/settings'],
-  ['POST', '/api/admin/orders/1/status', { status: 'done' }],
   ['POST', '/api/admin/items', { name: 'x' }],
   ['PUT', '/api/admin/items/1', { name: 'x' }],
   ['DELETE', '/api/admin/items/1'],
@@ -239,13 +238,12 @@ test('admin API menyu va sozlamalar orqali mijoz narxlariga taʼsir qiladi (toʻ
   assert.ok(!(await t.json('/api/menu')).data.items.some((i) => i.id === id));
   assert.equal((await t.json('/api/orders', { method: 'POST', body: orderBody([{ id, qty: 3 }]) })).status, 409);
 
-  // buyurtma holati admin tomonidan oʻzgaradi va mijoz koʻradi
+  // Admin va mijoz faqat kuzatadi; holatni ishchi rollari oʻzgartiradi.
   const list = await as('GET', '/api/admin/orders?scope=all');
   const mine = list.data.orders.find((x) => x.code === o.data.order.code);
   assert.equal(mine.name, 'Ali Valiyev');
-  assert.equal((await as('POST', `/api/admin/orders/${mine.id}/status`, { status: 'delivering' })).status, 200);
-  assert.equal((await as('POST', `/api/admin/orders/${mine.id}/status`, { status: 'hack' })).status, 422);
-  assert.equal((await t.json(`/api/orders/${o.data.order.token}`)).data.order.status, 'delivering');
+  assert.equal((await as('POST', `/api/admin/orders/${mine.id}/status`, { status: 'delivering' })).status, 404);
+  assert.equal((await t.json(`/api/orders/${o.data.order.token}`)).data.order.status, 'new');
 
   // buyurtma tarixi: taom oʻchirilsa ham eski buyurtma qoladi
   assert.equal((await as('DELETE', `/api/admin/items/${id}`)).status, 200);
@@ -257,4 +255,36 @@ test('admin API menyu va sozlamalar orqali mijoz narxlariga taʼsir qiladi (toʻ
   const items = (await t.json('/api/menu')).data.items;
   assert.equal((await t.json('/api/orders', { method: 'POST', body: orderBody([{ id: items[0].id, qty: 2 }]) })).status, 409);
   await as('PUT', '/api/admin/settings', { ...st });
+});
+
+test('oshxona tayyor holatiga oʻtkazmaguncha kuryer buyurtmani koʻrmaydi; mijoz va admin holatni oʻzgartira olmaydi', async () => {
+  assert.equal((await t.json('/api/kitchen/orders')).status,401);
+  assert.equal((await t.json('/api/courier/orders')).status,401);
+  const admin=await t.login();
+  const asAdmin=(path,method,body)=>t.json(path,{method,body,cookie:admin.cookie,csrf:admin.csrf});
+  const k=await asAdmin('/api/admin/kitchen-staff','POST',{name:'Sinov Oshpaz',username:'oshpaz1',password:'OshpazSinov123'});
+  assert.equal(k.status,201,JSON.stringify(k.data));
+  const c=await asAdmin('/api/admin/couriers','POST',{name:'Sinov Kuryer',phone:'+998901234567',username:'kuryer1',password:'KuryerSinov123'});
+  assert.equal(c.status,201,JSON.stringify(c.data));
+  const menu=await t.json('/api/menu');const order=await t.json('/api/orders',{method:'POST',body:orderBody([{id:menu.data.items[0].id,qty:1}])});
+  assert.equal(order.status,201);
+  assert.equal((await asAdmin(`/api/admin/orders/${order.data.order.code.slice(3)}/courier`,'POST',{courierId:c.data.courier.id})).status,200);
+  const cookLogin=await t.json('/api/kitchen/login',{method:'POST',body:{username:'oshpaz1',password:'OshpazSinov123'}});
+  const cookCookie=cookLogin.headers.get('set-cookie').split(';')[0];
+  const cook=(path,method='GET',body)=>t.json(path,{method,body,cookie:cookCookie,csrf:cookLogin.data.csrf});
+  const queue=await cook('/api/kitchen/orders');const ticket=queue.data.orders.find(x=>x.code===order.data.order.code);assert.ok(ticket);
+  assert.equal('address' in ticket,false);assert.equal('phone' in ticket,false);
+  assert.equal((await t.json(`/api/kitchen/orders/${ticket.id}/status`,{method:'POST',body:{status:'preparing'},cookie:cookCookie})).status,403);
+  const courierLogin=await t.json('/api/courier/login',{method:'POST',body:{username:'kuryer1',password:'KuryerSinov123'}});
+  const courierCookie=courierLogin.headers.get('set-cookie').split(';')[0];
+  const courier=(path,method='GET',body)=>t.json(path,{method,body,cookie:courierCookie,csrf:courierLogin.data.csrf});
+  assert.equal((await courier('/api/courier/orders')).data.orders.length,0);
+  assert.equal((await cook(`/api/kitchen/orders/${ticket.id}/status`,'POST',{status:'preparing'})).status,200);
+  assert.equal((await cook(`/api/kitchen/orders/${ticket.id}/status`,'POST',{status:'ready'})).status,200);
+  const courierOrders=(await courier('/api/courier/orders')).data.orders;assert.equal(courierOrders.find(x=>x.code===ticket.code).status,'ready');
+  assert.equal((await courier(`/api/courier/orders/${ticket.id}/status`,'POST',{status:'preparing'})).status,422);
+  assert.equal((await courier(`/api/courier/orders/${ticket.id}/status`,'POST',{status:'delivering'})).status,200);
+  assert.equal((await courier(`/api/courier/orders/${ticket.id}/status`,'POST',{status:'done'})).status,200);
+  assert.equal((await t.json(`/api/orders/${order.data.order.token}`)).data.order.status,'done');
+  assert.equal((await t.json(`/api/orders/${order.data.order.token}`,{method:'POST',body:{status:'done'}})).status,405);
 });
