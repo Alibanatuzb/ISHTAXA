@@ -1,6 +1,6 @@
 # Ishtaxa — fast food onlayn buyurtma sayti
 
-Qora va sariq dizayndagi sayt: menyu, savat, buyurtma berish, **4 ta olganga 1 ta bonus** aksiyasi va faqat egasi kiradigan admin panel.
+Qora va apelsin rangli sayt: menyu, savat, yetkazib berish yoki zal/stol buyurtmasi, **4 ta olganga 1 ta bonus** aksiyasi va alohida oshxona, kuryer hamda admin panellari.
 
 npm paketlari kerak emas (faqat Node.js 22.13+). Buyurtmalar SQLite faylida saqlanadi.
 
@@ -28,7 +28,16 @@ Sayt oddiy fayllar emas, server dasturi. Shuning uchun Node yoki Docker ishlaydi
 ## Admin panel
 
 - Manzil: `ADMIN_PATH` da yozgan yashirin yoʻl (masalan `/boshqaruv-q7x2m9`). Boshqa yoʻllarda admin sahifasi mavjud emas.
-- Buyurtmalar (holatini oʻzgartirish), menyu (qoʻshish, tahrirlash, yashirish, oʻchirish), aksiya va yetkazish sozlamalari, parolni oʻzgartirish.
+- Hisobotlar, buyurtmalar holatini kuzatish, kuryer va oshpaz akkauntlari, menyu, aksiya va yetkazish sozlamalari, parolni oʻzgartirish.
+- Buyurtma holati mijozga faqat koʻrinadi. Admin holatni oʻzgartirmaydi.
+
+## Buyurtma ish jarayoni
+
+- Oshpaz yangi buyurtmani qabul qiladi, tayyorlashni boshlaydi va tayyor deb belgilaydi.
+- Yetkazish buyurtmasi faqat oshxona tayyor qilgandan keyin biriktirilgan kuryer panelida koʻrinadi. Kuryer «Yoʻlga chiqdim» va «Yetkazildi» bosqichlarini yuritadi.
+- Zal buyurtmasida stol raqami kiritiladi, yetkazish haqi olinmaydi, oshpaz «Stolga berildi» bilan yakunlaydi.
+- Mijoz buyurtma raqami bilan jarayonni kuzatadi; holatni oʻzgartiradigan API yoʻq.
+- Oshxona paneli: `/kitchen.html`; kuryer paneli: `/courier.html`.
 - Parol esdan chiqsa: serverda `npm run reset-admin`.
 
 ## Aksiyani oʻzgartirish
@@ -47,4 +56,4 @@ Admin panel → «Aksiya va sozlamalar». Standart: 4 ta olsangiz, 1 tasi bepul.
 - Mijoz buyurtma holatini faqat uzun tasodifiy havola orqali koʻradi; ommaviy javobda telefon va manzil yoʻq.
 - Fayllarga yoʻl chiqib ketish (`../`), maxfiy fayllar va baza fayliga kirish yopiq.
 
-Cheklov: bitta server va SQLite kichik va oʻrta yuk uchun yetarli. Juda katta yuk boʻlsa PostgreSQL ga oʻtish kerak.
+Cheklov: bitta server va SQLite kichik va oʻrta yuk uchun yetarli. Juda katta yuk boʻlsa PostgreSQL ga oʻtish kerak. Render Free xizmatida disk doimiy emas; buyurtmalarni saqlash uchun doimiy diskli pullik xizmat yoki tashqi maʼlumotlar bazasi talab qilinadi.

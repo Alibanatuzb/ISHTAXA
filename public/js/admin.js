@@ -26,12 +26,7 @@
   const fmtTime = (ts) =>
     new Date(ts).toLocaleString('ru-RU', { timeZone: 'Asia/Tashkent', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-  const STATUS = { new: 'Yangi', preparing: 'Tayyorlanmoqda', delivering: 'Yoʻlda', done: 'Yetkazildi', cancelled: 'Bekor qilindi' };
-  const NEXT = {
-    new: { to: 'preparing', label: 'Tayyorlashni boshlash' },
-    preparing: { to: 'delivering', label: 'Yoʻlga chiqdi' },
-    delivering: { to: 'done', label: 'Yetkazildi' },
-  };
+  const STATUS = { new: 'Yangi', preparing: 'Tayyorlanmoqda', ready: 'Tayyor', delivering: 'Yoʻlda', done: 'Yetkazildi', cancelled: 'Bekor qilindi' };
 
   const S = { csrf: null, tab: 'orders', scope: 'active', timer: null, items: [], couriers: [], timerBusy: false };
 
@@ -101,7 +96,7 @@
 
   /* ---------- Asosiy ramka ---------- */
 
-  const TABS = [['orders', 'Buyurtmalar'], ['menu', 'Menyu'], ['couriers', 'Kuryerlar'], ['settings', 'Aksiya va sozlamalar'], ['password', 'Parol']];
+  const TABS = [['orders', 'Hisobot va kuzatuv'], ['menu', 'Menyu'], ['kitchen', 'Oshpazlar'], ['couriers', 'Kuryerlar'], ['settings', 'Sozlamalar'], ['password', 'Parol']];
 
   function showApp() {
     const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Boʻlimlar' });
@@ -119,7 +114,7 @@
       h('div', { class: 'admin-wrap' }, tabs, content)
     );
     stopTimer();
-    ({ orders: viewOrders, menu: viewMenu, couriers: viewCouriers, settings: viewSettings, password: viewPassword })[S.tab](content);
+    ({ orders: viewOrders, menu: viewMenu, kitchen: viewKitchenStaff, couriers: viewCouriers, settings: viewSettings, password: viewPassword })[S.tab](content);
   }
 
   async function logout() {
@@ -170,19 +165,6 @@
     lines.append(h('div', null, h('span', null, 'Yetkazish'), h('span', null, o.deliveryFee ? money(o.deliveryFee) : 'Bepul')));
     lines.append(h('div', null, h('b', null, 'Jami'), h('b', null, money(o.total))));
 
-    const act = h('div', { class: 'actions' });
-    const move = async (status) => {
-      try { await api(`/api/admin/orders/${o.id}/status`, { method: 'POST', body: { status } }); await refresh(); }
-      catch (e) { if (e.status !== 401) alert(e.message); }
-    };
-    if (NEXT[o.status]) act.append(h('button', { class: 'btn btn-sun btn-auto', type: 'button', onclick: () => move(NEXT[o.status].to) }, NEXT[o.status].label));
-    if (o.status === 'new' || o.status === 'preparing' || o.status === 'delivering') {
-      act.append(h('button', { class: 'btn-line btn-danger', type: 'button', onclick: () => { if (confirm(`${o.code} buyurtmani bekor qilasizmi?`)) move('cancelled'); } }, 'Bekor qilish'));
-    }
-    if (o.status === 'done' || o.status === 'cancelled') {
-      act.append(h('button', { class: 'btn-line', type: 'button', onclick: () => { if (confirm('Buyurtmani qayta faollashtirasizmi?')) move('new'); } }, 'Qayta ochish'));
-    }
-
     const phoneLink = /^\+998\d{9}$/.test(o.phone) ? h('a', { href: `tel:${o.phone}` }, o.phone) : o.phone;
     return h('article', { class: 'card' },
       h('div', { class: 'card-head' },
@@ -190,12 +172,13 @@
         h('span', { class: `status is-${o.status}` }, STATUS[o.status] || o.status),
         h('span', { class: 'muted' }, fmtTime(o.createdAt))),
       h('dl', null,
+        h('dt', null, 'Turi'), h('dd', null, o.orderType === 'dinein' ? `Zal · stol ${o.tableNumber}` : 'Yetkazib berish'),
         h('dt', null, 'Mijoz'), h('dd', null, o.name),
-        h('dt', null, 'Telefon'), h('dd', null, phoneLink),
-        h('dt', null, 'Manzil'), h('dd', null, o.address),
+        o.phone ? h('dt', null, 'Telefon') : null, o.phone ? h('dd', null, phoneLink) : null,
+        o.address ? h('dt', null, 'Manzil') : null, o.address ? h('dd', null, o.address) : null,
         o.note ? h('dt', null, 'Izoh') : null, o.note ? h('dd', null, o.note) : null,
         h('dt', null, 'Toʻlov'), h('dd', null, o.payment === 'card' ? 'Karta (kuryerga)' : 'Naqd (kuryerga)')),
-      h('div', { class: 'courier-assign' },
+      o.orderType === 'delivery' ? h('div', { class: 'courier-assign' },
         h('label', { for: 'courier-order-' + o.id }, 'Masʼul kuryer'),
         (() => {
           const sel = h('select', { id: 'courier-order-' + o.id, 'aria-label': 'Kuryer tanlash' });
@@ -206,8 +189,24 @@
             catch (e) { alert(e.message); }
           });
           return sel;
-        })()),
-      lines, act);
+        })()) : null,
+      lines);
+  }
+
+  async function viewKitchenStaff(root) {
+    const list=h('div');
+    const add=h('button',{class:'btn btn-sun btn-auto',type:'button',onclick:()=>kitchenDialog(load)},'＋ Oshpaz qoʻshish');
+    root.replaceChildren(h('div',{class:'section-title'},'Oshxona jamoasi'),h('p',{class:'muted'},'Har bir oshpazga alohida login va kuchli parol bering. Faol oshpazlar yangi buyurtmalarni qabul qilib, tayyor holatiga oʻtkazadi.'),h('div',{class:'actions'},add),list);
+    async function load(){try{const r=await api('/api/admin/kitchen-staff');list.replaceChildren(...(r.staff.length?r.staff.map(c=>h('article',{class:'card'},h('div',{class:'card-head'},h('h3',null,c.name),h('span',{class:'status '+(c.active?'is-done':'is-cancelled')},c.active?'Faol':'Oʻchirilgan')),h('p',null,'Login: '+c.username),h('div',{class:'actions'},h('button',{class:'btn-line',type:'button',onclick:async()=>{try{await api('/api/admin/kitchen-staff/'+c.id,{method:'PUT',body:{name:c.name,active:!c.active}});await load();}catch(e){alert(e.message);}}},c.active?'Faolsizlantirish':'Faollashtirish'),h('button',{class:'btn-line btn-danger',type:'button',onclick:async()=>{if(!confirm(c.name+' oshpazini oʻchirasizmi?'))return;try{await api('/api/admin/kitchen-staff/'+c.id,{method:'DELETE'});await load();}catch(e){alert(e.message);}}},'Oʻchirish')))): [h('p',{class:'empty'},'Oshpaz hisobi hali yaratilmagan.')]))}catch(e){list.replaceChildren(h('p',{class:'alert'},e.message));}}
+    await load();
+  }
+  function kitchenDialog(done){
+    const dlg=h('dialog',{class:'modal','aria-labelledby':'kitchen-title'});
+    const name=h('input',{id:'k-name',required:true,maxlength:60});const username=h('input',{id:'k-user',required:true,maxlength:30});const password=h('input',{id:'k-pass',type:'password',required:true,autocomplete:'new-password',maxlength:128});
+    const msg=h('div',{class:'alert',hidden:true});const field=(id,label,input)=>h('div',{class:'field'},h('label',{for:id},label),input);
+    const form=h('form',{class:'form'},h('h2',{id:'kitchen-title'},'Yangi oshpaz'),field('k-name','Ism',name),field('k-user','Login',username),field('k-pass','Parol (harf va raqam, 10+ belgi)',password),msg,h('div',{class:'actions'},h('button',{class:'btn btn-sun btn-auto',type:'submit'},'Saqlash'),h('button',{class:'btn-line',type:'button',onclick:()=>dlg.close()},'Bekor qilish')));
+    form.addEventListener('submit',async e=>{e.preventDefault();msg.hidden=true;try{await api('/api/admin/kitchen-staff',{method:'POST',body:{name:name.value,username:username.value,password:password.value}});dlg.close();await done();}catch(ex){msg.textContent=ex.message;msg.hidden=false;}});
+    dlg.append(form);dlg.addEventListener('close',()=>dlg.remove());document.body.append(dlg);dlg.showModal();name.focus();
   }
 
   async function viewCouriers(root) {

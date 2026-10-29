@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS orders (
   delivery_fee INTEGER NOT NULL,
   total INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'new',
+  order_type TEXT NOT NULL DEFAULT 'delivery',
+  table_number TEXT NOT NULL DEFAULT '',
   assigned_courier_id INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -102,6 +104,21 @@ CREATE TABLE IF NOT EXISTS courier_sessions (
   created_at INTEGER NOT NULL,
   last_seen INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS kitchen_staff (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  username TEXT NOT NULL UNIQUE,
+  pass_hash TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kitchen_sessions (
+  token_hash TEXT PRIMARY KEY,
+  staff_id INTEGER NOT NULL REFERENCES kitchen_staff(id) ON DELETE CASCADE,
+  csrf TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  last_seen INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   csrf TEXT NOT NULL,
@@ -111,7 +128,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 `;
 
 const SCOPE_WHERE = {
-  active: "status IN ('new','preparing','delivering')",
+  active: "status IN ('new','preparing','ready','delivering')",
   done: "status = 'done'",
   cancelled: "status = 'cancelled'",
   all: '1 = 1',
@@ -139,7 +156,8 @@ function parseSettings(rows) {
 }
 
 /* Narxni faqat serverda hisoblaymiz. Mijoz yuborgan narx yoki jami hisobga olinmaydi. */
-function priceOrder(requested, itemsById, s) {
+function priceOrder(request, itemsById, s) {
+  const requested = request.items || request;
   const lines = [];
   let subtotal = 0;
   for (const { id, qty } of requested) {
@@ -151,7 +169,7 @@ function priceOrder(requested, itemsById, s) {
     subtotal += item.price * qty;
     lines.push({ item, qty, free });
   }
-  const deliveryFee = s.free_from > 0 && subtotal >= s.free_from ? 0 : s.delivery_fee;
+  const deliveryFee = request.orderType === 'dinein' ? 0 : (s.free_from > 0 && subtotal >= s.free_from ? 0 : s.delivery_fee);
   return { lines, subtotal, deliveryFee, total: subtotal + deliveryFee };
 }
 
@@ -170,6 +188,8 @@ function openDb(file) {
   if (!itemCols.includes('image_url')) db.exec("ALTER TABLE items ADD COLUMN image_url TEXT NOT NULL DEFAULT ''");
   const orderCols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
   if (!orderCols.includes('assigned_courier_id')) db.exec('ALTER TABLE orders ADD COLUMN assigned_courier_id INTEGER');
+  if (!orderCols.includes('order_type')) db.exec("ALTER TABLE orders ADD COLUMN order_type TEXT NOT NULL DEFAULT 'delivery'");
+  if (!orderCols.includes('table_number')) db.exec("ALTER TABLE orders ADD COLUMN table_number TEXT NOT NULL DEFAULT ''");
   if (file !== ':memory:') {
     try { fs.chmodSync(file, 0o600); } catch { /* ba'zi fayl tizimlarida ishlamaydi */ }
   }
@@ -212,6 +232,7 @@ function openDb(file) {
     ),
     linesFor: db.prepare('SELECT * FROM order_lines WHERE order_id = ? ORDER BY id'),
     orderStatus: db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?'),
+    orderTransition: db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ? AND status = ?'),
     adminGet: db.prepare('SELECT * FROM admin WHERE id = 1'),
     adminSet: db.prepare(
       `INSERT INTO admin(id, username, pass_hash, updated_at) VALUES(1, ?, ?, ?)
@@ -263,6 +284,8 @@ function openDb(file) {
       code: orderCode(row.id),
       token: row.token,
       status: row.status,
+      orderType: row.order_type || 'delivery',
+      tableNumber: row.table_number || '',
       subtotal: row.subtotal,
       deliveryFee: row.delivery_fee,
       total: row.total,
@@ -285,6 +308,8 @@ function openDb(file) {
       deliveryFee: row.delivery_fee,
       total: row.total,
       status: row.status,
+      orderType: row.order_type || 'delivery',
+      tableNumber: row.table_number || '',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       lines: lines.map((l) => ({ name: l.name, unitPrice: l.unit_price, qty: l.qty, free: l.free_qty })),
@@ -335,15 +360,16 @@ function openDb(file) {
           throw new HttpError(409, 'Hozir buyurtma qabul qilinmaydi. Ish vaqtida qayta urinib koʻring.', { code: 'closed' });
         }
         const itemsById = new Map(q.itemsAll.all().map((r) => [r.id, { ...r, active: r.active === 1 }]));
-        const priced = priceOrder(input.items, itemsById, s);
+        const priced = priceOrder(input, itemsById, s);
         if (priced.subtotal < s.min_order) {
           throw new HttpError(422, `Minimal buyurtma summasi ${s.min_order} soʻm.`, { code: 'min_order', min: s.min_order });
         }
         const now = Date.now();
         const token = randomToken(16);
-        const r = q.orderInsert.run(
+        const r = db.prepare(`INSERT INTO orders(token, idem, name, phone, address, note, payment, subtotal, delivery_fee, total, status, order_type, table_number, created_at, updated_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?)`).run(
           token, input.key, input.name, input.phone, input.address, input.note, input.payment,
-          priced.subtotal, priced.deliveryFee, priced.total, now, now
+          priced.subtotal, priced.deliveryFee, priced.total, input.orderType || 'delivery', input.tableNumber || '', now, now
         );
         const id = Number(r.lastInsertRowid);
         for (const l of priced.lines) {
@@ -375,10 +401,16 @@ function openDb(file) {
       if (!ORDER_STATUSES.includes(status)) return false;
       return q.orderStatus.run(status, Date.now(), id).changes > 0;
     },
+    transitionOrder(id, from, to) {
+      return q.orderTransition.run(to, Date.now(), id, from).changes > 0;
+    },
+    serveDineIn(id) {
+      return db.prepare("UPDATE orders SET status='done',updated_at=? WHERE id=? AND order_type='dinein' AND status='ready'").run(Date.now(),id).changes>0;
+    },
     assignCourier(orderId, courierId) {
       const c = courierId === null ? null : db.prepare('SELECT id FROM couriers WHERE id=? AND active=1').get(courierId);
       if (courierId !== null && !c) return null;
-      const r = db.prepare('UPDATE orders SET assigned_courier_id=?, updated_at=? WHERE id=?').run(courierId, Date.now(), orderId);
+      const r = db.prepare("UPDATE orders SET assigned_courier_id=?, updated_at=? WHERE id=? AND order_type='delivery'").run(courierId, Date.now(), orderId);
       return r.changes > 0;
     },
     listCouriers() {
@@ -405,8 +437,41 @@ function openDb(file) {
     deleteCourierSession(hash) {db.prepare('DELETE FROM courier_sessions WHERE token_hash=?').run(hash);},
     deleteCourierSessions(id) {db.prepare('DELETE FROM courier_sessions WHERE courier_id=?').run(id);},
     courierOrders(courierId) {
-      const rows=db.prepare("SELECT * FROM orders WHERE assigned_courier_id=? AND status IN ('new','preparing','delivering') ORDER BY id DESC LIMIT 100").all(courierId);
-      return rows.map(r=>{const lines=db.prepare('SELECT * FROM order_lines WHERE order_id=? ORDER BY id').all(r.id);return adminOrder(r,lines);});
+      const rows=db.prepare("SELECT * FROM orders WHERE assigned_courier_id=? AND status IN ('ready','delivering') ORDER BY id DESC LIMIT 100").all(courierId);
+      if(!rows.length)return [];
+      const ids=rows.map(r=>r.id);const lines=db.prepare(`SELECT * FROM order_lines WHERE order_id IN (${ids.map(()=>'?').join(',')}) ORDER BY id`).all(...ids);
+      const byOrder=new Map();for(const line of lines){if(!byOrder.has(line.order_id))byOrder.set(line.order_id,[]);byOrder.get(line.order_id).push(line);}
+      return rows.map(r=>adminOrder(r,byOrder.get(r.id)||[]));
+    },
+    listKitchenStaff() {
+      return db.prepare("SELECT id,name,username,active,created_at AS createdAt FROM kitchen_staff ORDER BY id DESC").all().map(r=>({...r,active:r.active===1}));
+    },
+    createKitchenStaff(v) {
+      const r=db.prepare('INSERT INTO kitchen_staff(name,username,pass_hash,active,created_at) VALUES(?,?,?,1,?)').run(v.name,v.username,v.passHash,Date.now());
+      return {id:Number(r.lastInsertRowid),name:v.name,username:v.username,active:true};
+    },
+    updateKitchenStaff(id,v) {
+      const r=db.prepare('UPDATE kitchen_staff SET name=?,active=? WHERE id=?').run(v.name,v.active?1:0,id);
+      if(!r.changes)return null;
+      return db.prepare('SELECT id,name,username,active,created_at AS createdAt FROM kitchen_staff WHERE id=?').get(id);
+    },
+    deleteKitchenStaff(id) {
+      db.prepare('DELETE FROM kitchen_sessions WHERE staff_id=?').run(id);
+      return db.prepare('DELETE FROM kitchen_staff WHERE id=?').run(id).changes>0;
+    },
+    getKitchenByUsername(username) { return plain(db.prepare('SELECT * FROM kitchen_staff WHERE username=?').get(username)); },
+    getKitchenStaff(id) { return plain(db.prepare('SELECT * FROM kitchen_staff WHERE id=?').get(id)); },
+    createKitchenSession(hash,staffId,csrf) { const now=Date.now();db.prepare('INSERT INTO kitchen_sessions(token_hash,staff_id,csrf,created_at,last_seen) VALUES(?,?,?,?,?)').run(hash,staffId,csrf,now,now); },
+    getKitchenSession(hash) { return plain(db.prepare('SELECT * FROM kitchen_sessions WHERE token_hash=?').get(hash)); },
+    touchKitchenSession(hash) { db.prepare('UPDATE kitchen_sessions SET last_seen=? WHERE token_hash=?').run(Date.now(),hash); },
+    deleteKitchenSession(hash) { db.prepare('DELETE FROM kitchen_sessions WHERE token_hash=?').run(hash); },
+    deleteKitchenSessions(id) { db.prepare('DELETE FROM kitchen_sessions WHERE staff_id=?').run(id); },
+    kitchenOrders() {
+      const rows=db.prepare("SELECT * FROM orders WHERE status IN ('new','preparing') OR (status='ready' AND order_type='dinein') ORDER BY id ASC LIMIT 150").all();
+      if(!rows.length)return [];
+      const ids=rows.map(r=>r.id);const lines=db.prepare(`SELECT order_id,name,qty,free_qty AS free FROM order_lines WHERE order_id IN (${ids.map(()=>'?').join(',')}) ORDER BY id`).all(...ids);
+      const byOrder=new Map();for(const line of lines){if(!byOrder.has(line.order_id))byOrder.set(line.order_id,[]);byOrder.get(line.order_id).push({name:line.name,qty:line.qty,free:line.free});}
+      return rows.map(r=>({id:r.id,code:orderCode(r.id),orderType:r.order_type||'delivery',tableNumber:r.table_number||'',note:r.note,status:r.status,createdAt:r.created_at,lines:byOrder.get(r.id)||[]}));
     },
     stats(since) {
       const t = db
@@ -435,6 +500,8 @@ function openDb(file) {
     deleteAllSessions: () => q.sessionsClear.run(),
     purgeSessions(createdBefore, idleBefore) {
       q.sessionsPurge.run(createdBefore, idleBefore);
+      db.prepare('DELETE FROM courier_sessions WHERE created_at < ? OR last_seen < ?').run(createdBefore,idleBefore);
+      db.prepare('DELETE FROM kitchen_sessions WHERE created_at < ? OR last_seen < ?').run(createdBefore,idleBefore);
     },
   };
 }

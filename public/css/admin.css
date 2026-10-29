@@ -83,3 +83,11 @@ dialog.modal h2 { font-weight: 900; font-stretch: 62%; font-size: 2rem; line-hei
 .admin dialog.modal{background:#fff;color:#1b2a22;border-color:#e0e6da;border-radius:22px;box-shadow:0 20px 70px #0003}.admin dialog.modal h2{color:#173b2b;letter-spacing:-.04em}
 .admin .ok-msg{background:#e8f7df;color:#245a32;border:1px solid #d4ebc7}.admin .courier-assign{display:grid;gap:8px;margin:16px 0;padding:14px;border-radius:14px;background:#f4f7ed;border:1px solid #e1e8d8}.admin .courier-assign label{font-size:.88rem;font-weight:700;color:#234b34}.admin .courier-assign select{width:100%;min-width:0}
 @media(max-width:520px){.admin .stats{grid-template-columns:1fr}.admin .stat{display:flex;gap:10px;align-items:baseline}.admin .stat b{font-size:1.45rem}.admin .admin-wrap{padding-inline:14px}.admin .card{padding:15px}}
+
+/* Staff interfaces use the same charcoal and orange system as the storefront. */
+.admin{background:#0b0b0c;color:#fff7ef}.admin .top{background:rgba(11,11,12,.96);color:#fff7ef;border-bottom:1px solid #302d2a;box-shadow:0 4px 24px #0008}.admin .top .brand{color:#fff7ef}
+.admin .card,.admin .stat,.admin .login-box,.admin .menu-row{background:#151515;color:#fff7ef;border-color:#302d2a}.admin .login-box h1,.admin .section-title{color:#ff9a48}.admin .login-box .muted{color:#b7aaa0}
+.admin .tabs button,.admin .chips button{background:#151515;color:#fff7ef;border-color:#423a33}.admin .tabs button[aria-selected=true],.admin .chips button[aria-pressed=true]{background:#f58220;color:#1b120b;border-color:#f58220}
+.admin .btn-line{background:#191715;color:#fff0e2;border-color:#514338}.admin .btn-line:hover{background:#2a1c12;border-color:#9b581f;color:#ffad69}.admin .btn-sun{background:#f58220;color:#1b120b;border-color:#f58220}
+.admin .field input,.admin .field textarea,.admin .field select{background:#0e0e0e;border-color:#423a33;color:#fff7ef}.admin dialog.modal{background:#151311;color:#fff7ef;border-color:#514338}.admin dialog.modal h2{color:#ff9a48}
+.admin .stat b{color:#ff9a48}.admin .empty{background:#151515;border-color:#302d2a;color:#b7aaa0}.admin .status{background:#f58220;color:#1b120b}.admin .status.is-ready,.admin .status.is-done{background:#31432a;color:#d9f2c7}.admin .status.is-cancelled{background:#51251f;color:#ffd8cf}

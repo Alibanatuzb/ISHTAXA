@@ -138,6 +138,20 @@ function createApp(config) {
     if(ctx.mutating){const sent=String(ctx.req.headers['x-csrf-token']||'');if(!sent||!sec.safeEqual(sent,session.csrf))throw new HttpError(403,'Xavfsizlik kaliti mos kelmadi.');}
     ctx.courierSession={hash,csrf:session.csrf,courier};
   }
+  function requireKitchen(ctx) {
+    const cookies=sec.parseCookies(ctx.req.headers.cookie);
+    const token=cookies['__Host-ish_kitchen']||cookies.ish_kitchen;
+    if(!token||!/^[0-9a-f]{64}$/.test(token))throw new HttpError(401,'Oshxona xodimi sifatida tizimga kiring.');
+    const hash=sec.sha256(token),session=db.getKitchenSession(hash);
+    if(!session)throw new HttpError(401,'Oshxona sessiyasi tugagan.');
+    const now=Date.now();
+    if(now-session.created_at>L.sessionMaxMs||now-session.last_seen>L.sessionIdleMs){db.deleteKitchenSession(hash);throw new HttpError(401,'Oshxona sessiyasi tugagan.');}
+    const staff=db.getKitchenStaff(session.staff_id);
+    if(!staff||!staff.active){db.deleteKitchenSession(hash);throw new HttpError(403,'Oshxona hisobi faol emas.');}
+    db.touchKitchenSession(hash);
+    if(ctx.mutating){const sent=String(ctx.req.headers['x-csrf-token']||'');if(!sent||!sec.safeEqual(sent,session.csrf))throw new HttpError(403,'Xavfsizlik kaliti mos kelmadi.');}
+    ctx.kitchenSession={hash,csrf:session.csrf,staff};
+  }
   function requireAdmin(ctx) {
     const s = currentSession(ctx.req, ctx.secure);
     if (!s) throw new HttpError(401, 'Tizimga kiring.', { code: 'auth' });
@@ -239,6 +253,28 @@ function createApp(config) {
     if(db.getCourierByUsername(username))throw new HttpError(409,'Bu kuryer loginidan foydalanilgan.');
     const courier=db.createCourier({name,phone,username,passHash:await sec.hashPassword(password)});send(ctx.res,201,{courier});
   });
+  route('GET', /^\/api\/admin\/kitchen-staff$/, { admin: true }, (ctx) => send(ctx.res,200,{staff:db.listKitchenStaff()}));
+  route('POST', /^\/api\/admin\/kitchen-staff$/, { admin: true, body: true }, async (ctx) => {
+    const name=typeof ctx.body.name==='string'?ctx.body.name.trim().slice(0,60):'';
+    const username=typeof ctx.body.username==='string'?ctx.body.username.trim().toLowerCase():'';
+    const password=typeof ctx.body.password==='string'?ctx.body.password:'';
+    if(name.length<2)throw new HttpError(422,'Oshpaz ismini toʻgʻri kiriting.');
+    if(!/^[a-z0-9_-]{3,30}$/.test(username))throw new HttpError(422,'Login 3–30 belgidan iborat boʻlsin (lotin harfi, raqam, - yoki _).');
+    const problem=sec.passwordProblem(password);if(problem)throw new HttpError(422,problem);
+    if(db.getKitchenByUsername(username))throw new HttpError(409,'Bu login band.');
+    send(ctx.res,201,{staff:db.createKitchenStaff({name,username,passHash:await sec.hashPassword(password)})});
+  });
+  route('PUT', /^\/api\/admin\/kitchen-staff\/(\d{1,9})$/, { admin: true, body: true }, (ctx) => {
+    const name=typeof ctx.body.name==='string'?ctx.body.name.trim().slice(0,60):'';
+    if(name.length<2)throw new HttpError(422,'Oshpaz ismini toʻgʻri kiriting.');
+    const staff=db.updateKitchenStaff(Number(ctx.params[0]),{name,active:ctx.body.active===true});
+    if(!staff)throw new HttpError(404,'Oshpaz topilmadi.');
+    if(!staff.active)db.deleteKitchenSessions(staff.id);
+    send(ctx.res,200,{staff});
+  });
+  route('DELETE', /^\/api\/admin\/kitchen-staff\/(\d{1,9})$/, { admin: true }, (ctx) => {
+    if(!db.deleteKitchenStaff(Number(ctx.params[0])))throw new HttpError(404,'Oshpaz topilmadi.');send(ctx.res,200,{ok:true});
+  });
   route('PUT', /^\/api\/admin\/couriers\/(\d{1,9})$/, { admin: true, body: true }, (ctx) => {
     const name=typeof ctx.body.name==='string'?ctx.body.name.trim().slice(0,60):'';const phone=typeof ctx.body.phone==='string'?ctx.body.phone.trim().slice(0,30):'';
     if(name.length<2||phone.replace(/\D/g,'').length<9)throw new HttpError(422,'Ism va telefonni toʻgʻri kiriting.');
@@ -265,7 +301,8 @@ function createApp(config) {
   route('GET', /^\/api\/courier\/orders$/, { courier: true }, (ctx) => send(ctx.res,200,{orders:db.courierOrders(ctx.courierSession.courier.id)}));
   route('POST', /^\/api\/courier\/orders\/(\d{1,9})\/status$/, { courier: true, body: true }, (ctx) => {
     const id=Number(ctx.params[0]),status=ctx.body.status;const owns=db.courierOrders(ctx.courierSession.courier.id).some(o=>o.id===id);if(!owns)throw new HttpError(403,'Bu buyurtma sizga biriktirilmagan.');
-    if(!['preparing','delivering','done'].includes(status))throw new HttpError(422,'Holat notoʻgʻri.');if(!db.setOrderStatus(id,status))throw new HttpError(404,'Buyurtma topilmadi.');send(ctx.res,200,{ok:true});
+    const from=status==='delivering'?'ready':status==='done'?'delivering':null;
+    if(!from)throw new HttpError(422,'Holat notoʻgʻri.');if(!db.transitionOrder(id,from,status))throw new HttpError(409,'Buyurtma holati yangilangan. Roʻyxatni yangilang.');send(ctx.res,200,{ok:true});
   });
   route('POST', /^\/api\/courier\/logout$/, { courier: true }, (ctx) => {const name=ctx.secure?'__Host-ish_courier':'ish_courier';db.deleteCourierSession(ctx.courierSession.hash);ctx.res.setHeader('Set-Cookie',name+'=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'+(ctx.secure?'; Secure':''));send(ctx.res,200,{ok:true});});
   route('GET', /^\/api\/admin\/orders$/, { admin: true }, (ctx) => {
@@ -273,14 +310,24 @@ function createApp(config) {
     send(ctx.res, 200, { orders: db.listOrders({ scope, limit: 150 }) });
   });
 
-  route('POST', /^\/api\/admin\/orders\/(\d{1,9})\/status$/, { admin: true, body: true }, (ctx) => {
-    const status = ctx.body.status;
-    if (typeof status !== 'string' || !v.ORDER_STATUSES.includes(status)) {
-      throw new HttpError(422, 'Holat notoʻgʻri.');
-    }
-    if (!db.setOrderStatus(Number(ctx.params[0]), status)) throw new HttpError(404, 'Buyurtma topilmadi.');
-    send(ctx.res, 200, { ok: true });
+  route('POST', /^\/api\/kitchen\/login$/, { body: true }, async (ctx) => {
+    const chk=loginLimiter.check(ctx.ip);if(!chk.ok)throw new HttpError(429,'Juda koʻp xato urinish. Keyinroq qayta urinib koʻring.',{retryAfter:chk.retryAfter});
+    const username=typeof ctx.body.username==='string'?ctx.body.username.trim().toLowerCase().slice(0,30):'';
+    const password=typeof ctx.body.password==='string'?ctx.body.password.slice(0,128):'';
+    const staff=db.getKitchenByUsername(username);const passOk=await sec.verifyPassword(password,staff?staff.pass_hash:'');
+    if(!staff||!staff.active||!passOk){loginLimiter.hit(ctx.ip);await sleep(500);throw new HttpError(401,'Login yoki parol notoʻgʻri.');}
+    loginLimiter.reset(ctx.ip);db.deleteKitchenSessions(staff.id);
+    const token=sec.randomToken(32),csrf=sec.randomToken(24);db.createKitchenSession(sec.sha256(token),staff.id,csrf);
+    const cookieName=ctx.secure?'__Host-ish_kitchen':'ish_kitchen';const parts=[cookieName+'='+token,'Path=/','HttpOnly','SameSite=Strict','Max-Age='+Math.floor(L.sessionMaxMs/1000)];if(ctx.secure)parts.push('Secure');ctx.res.setHeader('Set-Cookie',parts.join('; '));send(ctx.res,200,{ok:true,csrf});
   });
+  route('GET', /^\/api\/kitchen\/session$/, { kitchen: true }, (ctx) => send(ctx.res,200,{ok:true,csrf:ctx.kitchenSession.csrf,staff:{name:ctx.kitchenSession.staff.name}}));
+  route('GET', /^\/api\/kitchen\/orders$/, { kitchen: true }, (ctx) => send(ctx.res,200,{orders:db.kitchenOrders()}));
+  route('POST', /^\/api\/kitchen\/orders\/(\d{1,9})\/status$/, { kitchen: true, body: true }, (ctx) => {
+    const status=ctx.body.status,id=Number(ctx.params[0]);const from=status==='preparing'?'new':status==='ready'?'preparing':null;
+    if(status==='done'){if(!db.serveDineIn(id))throw new HttpError(409,'Zal buyurtmasi xizmatga tayyor emas yoki allaqachon yakunlangan.');send(ctx.res,200,{ok:true});return;}
+    if(!from)throw new HttpError(422,'Holat notoʻgʻri.');if(!db.transitionOrder(id,from,status))throw new HttpError(409,'Buyurtma holati yangilangan. Roʻyxatni yangilang.');send(ctx.res,200,{ok:true});
+  });
+  route('POST', /^\/api\/kitchen\/logout$/, { kitchen: true }, (ctx) => {const name=ctx.secure?'__Host-ish_kitchen':'ish_kitchen';db.deleteKitchenSession(ctx.kitchenSession.hash);ctx.res.setHeader('Set-Cookie',name+'=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'+(ctx.secure?'; Secure':''));send(ctx.res,200,{ok:true});});
 
   route('GET', /^\/api\/admin\/stats$/, { admin: true }, (ctx) => {
     const offset = 5 * 3600 * 1000; // Toshkent vaqti (UTC+5)
@@ -406,6 +453,10 @@ function createApp(config) {
       if (method !== 'GET' && method !== 'HEAD') return send(res,405,{error:'Usul ruxsat etilmagan.'});
       return serveFile(req,res,path.join(config.publicDir,'courier.html'),{noStore:true,extra:{'X-Robots-Tag':'noindex, nofollow'}});
     }
+    if (pathname === '/kitchen' || pathname === '/kitchen.html') {
+      if (method !== 'GET' && method !== 'HEAD') return send(res,405,{error:'Usul ruxsat etilmagan.'});
+      return serveFile(req,res,path.join(config.publicDir,'kitchen.html'),{noStore:true,extra:{'X-Robots-Tag':'noindex, nofollow'}});
+    }
 
     // Yashirin admin sahifasi
     if (pathname === config.adminPath || pathname.startsWith(config.adminPath + '/')) {
@@ -435,6 +486,7 @@ function createApp(config) {
         const ctx = { req, res, url, ip, secure, mutating, params: m.slice(1), body: null, session: null };
         if (r.opts.admin) requireAdmin(ctx);
         if (r.opts.courier) requireCourier(ctx);
+        if (r.opts.kitchen) requireKitchen(ctx);
         if (r.opts.body) ctx.body = await readJson(req, pathname.startsWith('/api/admin/items') ? 400 * 1024 : 32 * 1024);
         return r.handler(ctx);
       }
@@ -523,7 +575,7 @@ async function main() {
   app.server.listen(config.port, config.host, () => {
     const { port } = app.server.address();
     console.log(`Ishtaxa ishga tushdi: http://${config.host}:${port}`);
-    console.log(`Admin sahifasi: http://${config.host}:${port}${config.adminPath}`);
+    console.log('Admin paneli belgilangan maxfiy yoʻlda ishlaydi.');
   });
   const stop = () => app.close().then(() => process.exit(0));
   process.on('SIGTERM', stop);
