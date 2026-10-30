@@ -168,7 +168,7 @@ const CSP = [
   "script-src 'self'",
   "style-src 'self' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data:",
+  "img-src 'self' data: https://images.pexels.com",
   "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",

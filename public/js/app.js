@@ -160,8 +160,9 @@
     for (const [name, items] of groups) {
       const id = `cat-${n++}`;
       cats.append(h('a', { href: `#${id}` }, name));
-      const section = h('section', { class: 'cat', id }, h('h3', null, name));
-      for (const it of items) section.append(buildRow(it));
+      const grid = h('div', { class: 'menu-grid' });
+      const section = h('section', { class: 'cat', id }, h('h3', null, name), grid);
+      for (const it of items) grid.append(buildRow(it));
       list.append(section);
     }
   }
@@ -170,13 +171,10 @@
     const s = state.settings;
     const tag = s.promo_on ? h('span', { class: 'tag', title: 'Aksiya' }, `${s.promo_buy}+${s.promo_free}`) : null;
     const side = h('div', { class: 'row-side' });
-    const row = h(
-      'article',
-      { class: 'row' },
-      h('div', { class: 'row-emoji', 'aria-hidden': 'true' }, it.imageUrl ? h('img', { src: it.imageUrl, alt: it.name, loading: 'lazy' }) : (it.emoji || '🍽️')),
-      h('div', null, h('h4', { class: 'row-name' }, it.name, tag), it.description ? h('p', { class: 'row-desc' }, it.description) : null),
-      side
-    );
+    const image = h('div', { class: 'row-emoji', 'aria-hidden': 'true' }, it.imageUrl ? h('img', { src: it.imageUrl, alt: '', loading: 'lazy', decoding: 'async' }) : (it.emoji || '🍽️'));
+    const row = h('article', { class: 'row' }, image,
+      h('div', { class: 'row-info' }, h('h4', { class: 'row-name' }, it.name, tag), it.description ? h('p', { class: 'row-desc' }, it.description) : null,
+        h('div', { class: 'row-bottom' }, h('span', { class: 'row-price' }, money(it.price)), side)));
     rowRefs.set(it.id, { side, it });
     updateRow(it.id);
     return row;
@@ -210,6 +208,8 @@
     const next = Math.max(0, Math.min(50, (state.cart.get(id) || 0) + delta));
     if (next === 0) state.cart.delete(id); else state.cart.set(id, next);
     saveCart();
+    const card = rowRefs.get(id)?.side.closest('.row');
+    if (card && delta > 0) { card.classList.remove('is-added'); void card.offsetWidth; card.classList.add('is-added'); setTimeout(() => card.classList.remove('is-added'), 520); }
     updateRow(id);
     updateHeader(delta > 0);
     if (state.view === 'cart' && $('#drawer').open) renderDrawer();

@@ -22,18 +22,18 @@ const DEFAULT_SETTINGS = {
 
 // Boshlangʻich menyu. Narxlarni admin panelda oʻzgartirasiz.
 const SEED_ITEMS = [
-  ['Burgerlar', 'Klassik burger', 'Mol goʻshti kotleti, pishloq, salat, sous', 32000, '🍔'],
-  ['Burgerlar', 'Dabl chizburger', 'Ikkita kotlet, ikki qavat pishloq', 45000, '🍔'],
-  ['Burgerlar', 'Achchiq tovuq burger', 'Qarsildoq tovuq, halapenyo, achchiq sous', 38000, '🌶️'],
-  ['Lavash va donar', 'Mol goʻshtli lavash', 'Goʻsht, yangi sabzavot, uy sousi', 35000, '🌯'],
-  ['Lavash va donar', 'Tovuqli lavash', 'Tovuq filesi, karam, pomidor, sous', 32000, '🌯'],
-  ['Lavash va donar', 'Pishloqli lavash', 'Erigan pishloq va tovuq', 38000, '🧀'],
-  ['Kartoshka va gazaklar', 'Fri kartoshka', 'Qarsildoq, yangi qovurilgan', 15000, '🍟'],
-  ['Kartoshka va gazaklar', 'Nagetslar (6 ta)', 'Tovuq nagetslari, sous bilan', 25000, '🍗'],
-  ['Kartoshka va gazaklar', 'Xot-dog', 'Sosiska, piyoz, gorchitsa, ketchup', 18000, '🌭'],
-  ['Ichimliklar', 'Kola 0,5 l', 'Sovuq', 9000, '🥤'],
-  ['Ichimliklar', 'Limonad', 'Uyda tayyorlangan, yalpizli', 14000, '🍋'],
-  ['Ichimliklar', 'Qora choy', 'Issiq, limon bilan', 6000, '☕'],
+  ['Burgerlar', 'Klassik burger', 'Mol goʻshti kotleti, pishloq, salat, sous', 32000, '🍔', 'https://images.pexels.com/photos/13163534/pexels-photo-13163534.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Burgerlar', 'Dabl chizburger', 'Ikkita kotlet, ikki qavat pishloq', 45000, '🍔', 'https://images.pexels.com/photos/10922925/pexels-photo-10922925.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Burgerlar', 'Achchiq tovuq burger', 'Qarsildoq tovuq, halapenyo, achchiq sous', 38000, '🌶️', 'https://images.pexels.com/photos/18136129/pexels-photo-18136129.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Lavash va donar', 'Mol goʻshtli lavash', 'Goʻsht, yangi sabzavot, uy sousi', 35000, '🌯', 'https://images.pexels.com/photos/39994554/pexels-photo-39994554.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Lavash va donar', 'Tovuqli lavash', 'Tovuq filesi, karam, pomidor, sous', 32000, '🌯', 'https://images.pexels.com/photos/10837796/pexels-photo-10837796.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Lavash va donar', 'Pishloqli lavash', 'Erigan pishloq va tovuq', 38000, '🧀', 'https://images.pexels.com/photos/34216153/pexels-photo-34216153.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Kartoshka va gazaklar', 'Fri kartoshka', 'Qarsildoq, yangi qovurilgan', 15000, '🍟', 'https://images.pexels.com/photos/4109234/pexels-photo-4109234.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Kartoshka va gazaklar', 'Nagetslar (6 ta)', 'Tovuq nagetslari, sous bilan', 25000, '🍗', 'https://images.pexels.com/photos/11710530/pexels-photo-11710530.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Kartoshka va gazaklar', 'Xot-dog', 'Sosiska, piyoz, gorchitsa, ketchup', 18000, '🌭', 'https://images.pexels.com/photos/29476588/pexels-photo-29476588.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Ichimliklar', 'Kola 0,5 l', 'Sovuq', 9000, '🥤', 'https://images.pexels.com/photos/33469209/pexels-photo-33469209.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Ichimliklar', 'Limonad', 'Uyda tayyorlangan, yalpizli', 14000, '🍋', 'https://images.pexels.com/photos/5946758/pexels-photo-5946758.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
+  ['Ichimliklar', 'Qora choy', 'Issiq, limon bilan', 6000, '☕', 'https://images.pexels.com/photos/14769756/pexels-photo-14769756.jpeg?auto=compress&cs=tinysrgb&w=900&h=680&fit=crop'],
 ];
 
 const SCHEMA = `
@@ -203,10 +203,12 @@ function openDb(file) {
   }
   if (db.prepare('SELECT COUNT(*) AS c FROM items').get().c === 0) {
     const ins = db.prepare(
-      'INSERT INTO items(category, name, description, price, emoji, active, sort) VALUES(?,?,?,?,?,1,?)'
+      'INSERT INTO items(category, name, description, price, emoji, active, sort, image_url) VALUES(?,?,?,?,?,1,?,?)'
     );
-    SEED_ITEMS.forEach(([cat, name, desc, price, emoji], i) => ins.run(cat, name, desc, price, emoji, (i + 1) * 10));
+    SEED_ITEMS.forEach(([cat, name, desc, price, emoji, imageUrl], i) => ins.run(cat, name, desc, price, emoji, (i + 1) * 10, imageUrl));
   }
+  const seedImage = db.prepare('UPDATE items SET image_url = ? WHERE name = ? AND image_url = ?');
+  for (const [, name, , , , imageUrl] of SEED_ITEMS) seedImage.run(imageUrl, name, '');
   db.exec('COMMIT');
 
   const q = {
