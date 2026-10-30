@@ -1,4 +1,3 @@
 User-agent: *
 Allow: /
 Disallow: /api/
-Sitemap: https://ishtaxa.onrender.com/sitemap.xml
