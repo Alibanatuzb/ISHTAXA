@@ -367,7 +367,7 @@
 
   function customerOrderCode(code) {
     const match = /^IS-(\d+)$/i.exec(String(code || ''));
-    return match ? `#${Number(match[1])}` : (code || '—');
+    return match ? `№ ${Number(match[1])}` : (code || '—');
   }
 
   function showOrder(order, fresh) {
