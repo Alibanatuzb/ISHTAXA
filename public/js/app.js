@@ -365,6 +365,11 @@
 
   /* ---------- Buyurtma holati ---------- */
 
+  function customerOrderCode(code) {
+    const match = /^IS-(\d+)$/i.exec(String(code || ''));
+    return match ? `№ ${Number(match[1])}` : (code || '—');
+  }
+
   function showOrder(order, fresh) {
             state.view = 'order';
     const body = $('#drawer-body');
@@ -379,14 +384,17 @@
     }
     body.append(
       h('div', { class: 'done' },
-        h('h3', null, fresh ? 'Qabul qilindi!' : `Buyurtma ${order.code}`),
-        h('p', null, fresh ? `Buyurtma raqami: ${order.code}. Tez orada operator siz bilan bogʻlanadi.` : 'Buyurtma holati avtomatik yangilanadi.'),
+        h('h3', null, fresh ? 'Buyurtma qabul qilindi' : `Buyurtma ${customerOrderCode(order.code)}`),
+        h('p', null, fresh
+          ? `Buyurtma raqamingiz: ${customerOrderCode(order.code)}. Holatini shu oynada kuzatib boring.`
+          : 'Buyurtma holati avtomatik yangilanadi.'),
+        order.orderType === 'dinein' ? h('p', { class: 'muted' }, `Zal · ${order.tableNumber}-stol`) : null,
         h('span', { class: `status is-${order.status}`, id: 'order-status' }, STATUS[order.status] || order.status),
         lines,
         h('div', { class: 'sum' },
           h('div', null, h('span', null, 'Yetkazish'), h('span', null, order.deliveryFee === 0 ? 'Bepul' : money(order.deliveryFee))),
           h('div', { class: 'total' }, h('span', null, 'Jami'), h('span', null, money(order.total)))),
-        h('p', { class: 'muted' }, 'Toʻlov kuryerga topshirilganda amalga oshiriladi.')
+        h('p', { class: 'muted' }, order.orderType === 'dinein' ? 'Toʻlov zalda amalga oshiriladi.' : 'Toʻlov kuryerga topshirilganda amalga oshiriladi.')
       )
     );
     if (!drawer().open) drawer().showModal();
@@ -419,7 +427,7 @@
       }
       const btn = $('#track');
       btn.hidden = false;
-      btn.replaceChildren('Buyurtmangiz ', h('b', null, order.code), `: ${STATUS[order.status]}. Koʻrish`);
+      btn.replaceChildren('Buyurtma ', h('b', null, customerOrderCode(order.code)), ` · ${STATUS[order.status]}. Holatini koʻrish`);
       btn.onclick = () => showOrder(order, false);
     } catch { /* tarmoq xatosi: banner koʻrsatilmaydi */ }
   }
