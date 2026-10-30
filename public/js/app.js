@@ -382,6 +382,7 @@
         h('div', null),
         l.free ? h('div', { class: 'line-gift' }, `🎁 +${l.free} ta sovgʻa`) : null));
     }
+    renderTracker(order);
     body.append(
       h('div', { class: 'done' },
         h('h3', null, fresh ? 'Buyurtma qabul qilindi' : `Buyurtma ${customerOrderCode(order.code)}`),
@@ -401,16 +402,33 @@
     poll(order.token);
   }
 
+  function renderTracker(order) {
+    const btn = $('#track');
+    state.last = order;
+    if (order.status === 'done' || order.status === 'cancelled') {
+      btn.hidden = true;
+      store.del('ishtaxa.last');
+      return;
+    }
+    btn.hidden = false;
+    btn.replaceChildren('Buyurtma ', h('b', null, customerOrderCode(order.code)), ` · ${STATUS[order.status]}. Holatini koʻrish`);
+    btn.onclick = () => showOrder(order, false);
+  }
+
   function stopPoll() { clearTimeout(state.pollTimer); state.pollTimer = null; }
 
   function poll(token) {
     stopPoll();
     state.pollTimer = setTimeout(async () => {
-      if (!drawer().open || state.view !== 'order') return;
+      if (state.last && state.last.token !== token) return;
       try {
         const { order } = await api(`/api/orders/${token}`);
+        renderTracker(order);
         const el = $('#order-status');
-        if (el) { el.textContent = STATUS[order.status] || order.status; el.className = `status is-${order.status}`; }
+        if (el && state.view === 'order') {
+          el.textContent = STATUS[order.status] || order.status;
+          el.className = `status is-${order.status}`;
+        }
         if (order.status !== 'done' && order.status !== 'cancelled') poll(token);
       } catch { poll(token); }
     }, 15000);
@@ -425,10 +443,8 @@
         store.del('ishtaxa.last');
         return;
       }
-      const btn = $('#track');
-      btn.hidden = false;
-      btn.replaceChildren('Buyurtma ', h('b', null, customerOrderCode(order.code)), ` · ${STATUS[order.status]}. Holatini koʻrish`);
-      btn.onclick = () => showOrder(order, false);
+      renderTracker(order);
+      poll(token);
     } catch { /* tarmoq xatosi: banner koʻrsatilmaydi */ }
   }
 
@@ -462,7 +478,6 @@
 
   function openCart() {
     if (!state.settings) return; // menyu hali yuklanmagan
-    stopPoll();
     state.view = 'cart';
     $('#drawer-h').textContent = 'Savat';
     renderDrawer();
@@ -472,7 +487,7 @@
   $('#cart-open').addEventListener('click', openCart);
   $('#drawer-close').addEventListener('click', () => drawer().close());
   drawer().addEventListener('click', (e) => { if (e.target === drawer()) drawer().close(); });
-  drawer().addEventListener('close', stopPoll);
+  drawer().addEventListener('close', () => { if (state.last && state.last.status !== 'done' && state.last.status !== 'cancelled') poll(state.last.token); });
 
   loadCart();
   loadMenu().then(restoreTracker);
