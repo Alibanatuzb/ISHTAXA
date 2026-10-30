@@ -366,7 +366,7 @@
   /* ---------- Buyurtma holati ---------- */
 
   function customerOrderCode(code) {
-    const match = /^IS-(\\d+)$/i.exec(String(code || ''));
+    const match = /^IS-(\d+)$/i.exec(String(code || ''));
     return match ? `#${Number(match[1])}` : (code || '—');
   }
 
