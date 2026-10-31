@@ -288,3 +288,14 @@ test('oshxona tayyor holatiga oʻtkazmaguncha kuryer buyurtmani koʻrmaydi; mijo
   assert.equal((await t.json(`/api/orders/${order.data.order.token}`)).data.order.status,'done');
   assert.equal((await t.json(`/api/orders/${order.data.order.token}`,{method:'POST',body:{status:'done'}})).status,405);
 });
+
+
+test('robots.txt allows the public site without exposing the private admin path', async () => {
+  const r = await t.raw('/robots.txt');
+  assert.equal(r.status, 200);
+  assert.ok(r.text.includes('User-agent: *'));
+  assert.ok(r.text.includes('Allow: /'));
+  assert.ok(r.text.includes('Disallow: /api/'));
+  assert.ok(r.text.includes('Sitemap: https://ishtaxa.onrender.com/sitemap.xml'));
+  assert.ok(!r.text.includes(ADMIN_PATH));
+});
