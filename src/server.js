@@ -449,6 +449,25 @@ function createApp(config) {
     const method = req.method;
     const ip = sec.clientIp(req, config);
 
+    if (pathname === '/robots.txt') {
+      if (method !== 'GET' && method !== 'HEAD') return send(res, 405, { error: 'Usul ruxsat etilmagan.' }, { Allow: 'GET, HEAD' });
+      const robots = [
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /api/',
+        'Disallow: /courier',
+        'Disallow: /kitchen',
+        'Sitemap: https://ishtaxa.onrender.com/sitemap.xml',
+        '',
+      ].join('\\n');
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Content-Length': Buffer.byteLength(robots),
+      });
+      return method === 'HEAD' ? res.end() : res.end(robots);
+    }
+
     if (pathname === '/courier' || pathname === '/courier.html') {
       if (method !== 'GET' && method !== 'HEAD') return send(res,405,{error:'Usul ruxsat etilmagan.'});
       return serveFile(req,res,path.join(config.publicDir,'courier.html'),{noStore:true,extra:{'X-Robots-Tag':'noindex, nofollow'}});
