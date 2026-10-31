@@ -459,7 +459,7 @@ function createApp(config) {
         'Disallow: /kitchen',
         'Sitemap: https://ishtaxa.onrender.com/sitemap.xml',
         '',
-      ].join('\\n');
+      ] .join(String.fromCharCode(10));
       res.writeHead(200, {
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-store',
